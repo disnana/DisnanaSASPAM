@@ -79,11 +79,41 @@ def embed(req: dict[str, Any]) -> discord.Embed:
     return e
 
 
+def has_approval_role(
+    guild_id: int | None,
+    channel_id: int | None,
+    member_role_ids: set[int],
+    visible: bool,
+    expected_guild_id: int,
+    expected_channel_id: int,
+    allowed_role_ids: frozenset[int],
+) -> bool:
+    """Require the right server, right channel, view permission and ANY role."""
+    return (
+        guild_id == expected_guild_id
+        and channel_id == expected_channel_id
+        and visible
+        and bool(member_role_ids.intersection(allowed_role_ids))
+    )
+
+
+def parse_role_ids(raw: str) -> frozenset[int]:
+    values = [item.strip() for item in raw.split(",")]
+    if not 1 <= len(values) <= 32 or any(not item.isascii() or not item.isdecimal() or not 15 <= len(item) <= 22 for item in values):
+        raise ValueError("DISCORD_APPROVAL_ROLE_IDS requires 1-32 comma-separated numeric role IDs")
+    result = frozenset(map(int, values))
+    if len(result) != len(values):
+        raise ValueError("duplicate approval role ID")
+    return result
+
+
 class RequestView(discord.ui.View):
-    def __init__(self, request_id: str, allowed: frozenset[int], done: bool = False):
+    def __init__(self, request_id: str, guild_id: int, channel_id: int, allowed_roles: frozenset[int], done: bool = False):
         super().__init__(timeout=None)
         self.request_id = request_id
-        self.allowed = allowed
+        self.guild_id = guild_id
+        self.channel_id = channel_id
+        self.allowed_roles = allowed_roles
         for decision, label, style in (("approve", "Approve", discord.ButtonStyle.success),
                                        ("deny", "Deny", discord.ButtonStyle.danger)):
             button = discord.ui.Button(label=label, style=style,
@@ -93,13 +123,25 @@ class RequestView(discord.ui.View):
 
     def _callback(self, decision: str):
         async def action(interaction: discord.Interaction) -> None:
-            if interaction.user.id not in self.allowed:
-                await interaction.response.send_message("You are not authorized to approve SSH logins.", ephemeral=True)
+            # Component interactions contain a guild Member with the roles
+            # supplied by Discord. No privileged Guild Members intent required.
+            if not isinstance(interaction.user, discord.Member):
+                await interaction.response.send_message("Guild membership is required.", ephemeral=True)
+                return
+            role_ids = {role.id for role in interaction.user.roles}
+            if not has_approval_role(
+                interaction.guild_id, interaction.channel_id, role_ids,
+                interaction.permissions.view_channel, self.guild_id, self.channel_id, self.allowed_roles
+            ) or not interaction.message or not interaction.client.user or interaction.message.author.id != interaction.client.user.id:
+                await interaction.response.send_message("You do not have permission to approve this SSH login.", ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True)
             try:
                 result = await request({"action": "decide", "request_id": self.request_id,
-                                        "actor_id": str(interaction.user.id), "decision": decision})
+                                        "actor_id": str(interaction.user.id), "decision": decision,
+                                        "guild_id": str(interaction.guild_id),
+                                        "channel_id": str(interaction.channel_id),
+                                        "role_ids": [str(role_id) for role_id in sorted(role_ids)]})
             except (OSError, ValueError, RuntimeError) as exc:
                 LOG.warning("IPC decision failed: %s", type(exc).__name__)
                 await interaction.followup.send("Approval service unavailable; access stays denied.", ephemeral=True)
@@ -118,18 +160,19 @@ class RequestView(discord.ui.View):
 
 
 class SaspamBot(discord.Client):
-    def __init__(self, channel_id: int, allowed: frozenset[int]):
+    def __init__(self, guild_id: int, channel_id: int, allowed_roles: frozenset[int]):
         intents = discord.Intents.default()
         intents.message_content = False  # No privileged intent or message reading required
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
+        self.guild_id = guild_id
         self.channel_id = channel_id
-        self.allowed = allowed
+        self.allowed_roles = allowed_roles
         self.messages: dict[str, int] = load_state()
         self.poller: asyncio.Task | None = None
 
     async def setup_hook(self) -> None:
         for req_id, message_id in self.messages.items():
-            self.add_view(RequestView(req_id, self.allowed), message_id=message_id)
+            self.add_view(RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles), message_id=message_id)
         self.poller = asyncio.create_task(self.poll(), name="saspam-poller")
 
     async def close(self) -> None:
@@ -141,8 +184,8 @@ class SaspamBot(discord.Client):
         ch = self.get_channel(self.channel_id)
         if ch is None:
             ch = await self.fetch_channel(self.channel_id)
-        if not isinstance(ch, (discord.TextChannel, discord.Thread)):
-            raise RuntimeError("Discord channel is not a text channel or thread")
+        if not isinstance(ch, (discord.TextChannel, discord.Thread)) or ch.guild.id != self.guild_id:
+            raise RuntimeError("Discord channel does not belong to the configured guild")
         return ch
 
     async def poll(self) -> None:
@@ -156,7 +199,7 @@ class SaspamBot(discord.Client):
                 pending = {r["request_id"]: r for r in reply.get("requests", [])}
                 for req_id, req in pending.items():
                     if req_id not in self.messages:
-                        message = await ch.send(embed=embed(req), view=RequestView(req_id, self.allowed))
+                        message = await ch.send(embed=embed(req), view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles))
                         self.messages[req_id] = message.id
                         save_state(self.messages)
                 for req_id, message_id in list(self.messages.items()):
@@ -168,7 +211,7 @@ class SaspamBot(discord.Client):
                         if row["status"] == "pending":
                             continue
                         message = await ch.fetch_message(message_id)
-                        await message.edit(embed=embed(row), view=RequestView(req_id, self.allowed, done=True))
+                        await message.edit(embed=embed(row), view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, done=True))
                     del self.messages[req_id]
                     save_state(self.messages)
             except asyncio.CancelledError:
@@ -181,11 +224,15 @@ class SaspamBot(discord.Client):
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     token = os.getenv("DISCORD_TOKEN", "")
+    guild_id = int(os.getenv("DISCORD_GUILD_ID", "0"))
     channel_id = int(os.getenv("DISCORD_CHANNEL_ID", "0"))
-    allowed = frozenset(int(x.strip()) for x in os.getenv("DISCORD_ALLOWED_USER_IDS", "").split(",") if x.strip())
-    if not token or not channel_id or not allowed:
-        raise SystemExit("DISCORD_TOKEN, DISCORD_CHANNEL_ID and DISCORD_ALLOWED_USER_IDS are required")
-    SaspamBot(channel_id, allowed).run(token, log_handler=None)
+    try:
+        allowed_roles = parse_role_ids(os.getenv("DISCORD_APPROVAL_ROLE_IDS", ""))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not token or not guild_id or not channel_id or guild_id in allowed_roles:
+        raise SystemExit("DISCORD_TOKEN, DISCORD_GUILD_ID, DISCORD_CHANNEL_ID and non-everyone approval roles are required")
+    SaspamBot(guild_id, channel_id, allowed_roles).run(token, log_handler=None)
 
 
 if __name__ == "__main__":
