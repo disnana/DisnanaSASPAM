@@ -24,6 +24,11 @@ class StructureTests(unittest.TestCase):
         self.assertIn("SHA256SUMS", script)
         self.assertIn("sha256sum -c -", script)
 
+    def test_ssh_hardening_does_not_restrict_config_dir(self):
+        cli = (ROOT / "crates/saspam-cli/src/main.rs").read_text()
+        self.assertIn("write_hardening(dest, HARDENING)", cli)
+        self.assertNotIn("write_private(dest, HARDENING)", cli)
+
     def test_bot_runs_without_root(self):
         unit = (ROOT / "systemd/saspam-discord.service").read_text()
         self.assertIn("User=saspam-bot", unit)
