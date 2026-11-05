@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main, feat/**]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -27,9 +27,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Rust unit tests
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
       - name: Build release artifacts
-        run: cargo build --release --workspace
+        run: cargo build --locked --release --workspace
 
   scripts:
     name: Python and shell validation
