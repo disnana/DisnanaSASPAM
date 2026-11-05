@@ -2,7 +2,7 @@
 //! No PAM credentials or SSH private key material ever cross this boundary.
 use serde::{Deserialize, Serialize};
 
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 pub const PAM_SOCKET: &str = "/run/saspam/pam.sock";
 pub const BOT_SOCKET: &str = "/run/saspam/bot.sock";
 
@@ -18,7 +18,7 @@ pub enum PamCommand {
 pub enum BotCommand {
     List { version: u8 },
     Get { version: u8, request_id: String },
-    Decide { version: u8, request_id: String, decision: Decision, actor_id: String },
+    Decide { version: u8, request_id: String, decision: Decision, actor_id: String, guild_id: String, channel_id: String, role_ids: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

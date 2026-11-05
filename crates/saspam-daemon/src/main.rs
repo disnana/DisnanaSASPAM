@@ -18,7 +18,7 @@ impl Default for General {
 }
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
-struct Discord { enabled: bool, allowed_user_ids: Vec<String> }
+struct Discord { enabled: bool, guild_id: String, channel_id: String, allowed_role_ids: Vec<String> }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 struct Ntfy { enabled: bool, server: String, topic: String }
@@ -38,11 +38,14 @@ impl Config {
         if !(10..=180).contains(&config.general.timeout_seconds) { return Err("timeout must be between 10 and 180 seconds".into()); }
         if config.general.server_name.is_empty() || config.general.server_name.len() > 128 || config.general.server_name.chars().any(|c| c.is_control()) { return Err("invalid server_name".into()); }
         // No web approval API in v0.1; never enable a gate that cannot be approved.
-        if !config.discord.enabled || config.discord.allowed_user_ids.is_empty() {
-            return Err("v0.1 requires Discord approval with at least one allowed user ID".into());
+        if !config.discord.enabled || !snowflake(&config.discord.guild_id) || !snowflake(&config.discord.channel_id)
+            || config.discord.allowed_role_ids.is_empty() || config.discord.allowed_role_ids.len() > 32
+            || config.discord.allowed_role_ids.iter().any(|id| !snowflake(id)) {
+            return Err("Discord guild_id, channel_id and 1-32 allowed_role_ids are required (old user-ID config must be migrated via saspam setup)".into());
         }
-        if config.discord.allowed_user_ids.iter().any(|id| id.len() < 15 || id.len() > 22 || !id.bytes().all(|b| b.is_ascii_digit())) {
-            return Err("Discord allowed_user_ids must contain numeric snowflake IDs".into());
+        let unique: std::collections::HashSet<_> = config.discord.allowed_role_ids.iter().collect();
+        if unique.len() != config.discord.allowed_role_ids.len() {
+            return Err("duplicate Discord approval role IDs".into());
         }
         if config.ntfy.enabled && (!config.ntfy.server.starts_with("https://") || !valid_topic(&config.ntfy.topic)) {
             return Err("invalid ntfy HTTPS server or topic".into());
@@ -53,6 +56,7 @@ impl Config {
         Ok(config)
     }
 }
+fn snowflake(id: &str) -> bool { (15..=22).contains(&id.len()) && id.bytes().all(|c| c.is_ascii_digit()) }
 fn valid_topic(topic: &str) -> bool { (24..=64).contains(&topic.len()) && topic.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_') }
 fn hostname() -> String { fs::read_to_string("/etc/hostname").unwrap_or_else(|_| "unknown".into()).trim().to_string() }
 fn unix_now() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
@@ -86,8 +90,17 @@ impl State {
         guard.insert(request.request_id.clone(), Entry { request: request.clone(), tx });
         Ok((request, rx))
     }
-    async fn finish(&self, id: &str, decision: Decision, actor: &str) -> Result<Status, String> {
-        if !self.config.discord.allowed_user_ids.iter().any(|x| x == actor) { return Err("actor is not allowlisted".into()); }
+    async fn finish(&self, id: &str, decision: Decision, actor: &str, guild_id: &str, channel_id: &str, role_ids: &[String]) -> Result<Status, String> {
+        // The Discord adapter checks the authenticated member's roles and channel
+        // permissions from the interaction payload; the daemon independently
+        // checks which guild/channel/role IDs are configured as approvers.
+        if !snowflake(actor) || guild_id != self.config.discord.guild_id || channel_id != self.config.discord.channel_id {
+            return Err("invalid Discord approval actor or interaction location".into());
+        }
+        if role_ids.is_empty() || role_ids.len() > 64 || role_ids.iter().any(|x| !snowflake(x))
+            || !role_ids.iter().any(|r| self.config.discord.allowed_role_ids.contains(r)) {
+            return Err("actor lacks an allowed Discord approval role".into());
+        }
         let mut guard = self.entries.lock().await;
         let entry = guard.get_mut(id).ok_or_else(|| "unknown request".to_string())?;
         if entry.request.status != Status::Pending { return Err("request already resolved".into()); }
@@ -189,8 +202,8 @@ async fn handle_bot(mut stream: UnixStream, state: Arc<State>) {
             Some(req) => Reply {ok:true,status:Some(req.status),requests:Some(vec![req]),error:None},
             None => Reply::denied("not found")
         },
-        BotCommand::Decide { version, request_id, decision, actor_id } if version == VERSION =>
-            match state.finish(&request_id, decision, &actor_id).await { Ok(s) => status_reply(s), Err(e) => Reply::denied(&e) },
+        BotCommand::Decide { version, request_id, decision, actor_id, guild_id, channel_id, role_ids } if version == VERSION =>
+            match state.finish(&request_id, decision, &actor_id, &guild_id, &channel_id, &role_ids).await { Ok(s) => status_reply(s), Err(e) => Reply::denied(&e) },
         _ => Reply::denied("unsupported bot command/version")
     };
     let _ = write_reply(&mut stream, &response).await;
@@ -305,16 +318,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     fn state() -> State {
-        State { entries: Mutex::new(HashMap::new()), config: Config { general: General::default(), discord: Discord { enabled:true, allowed_user_ids: vec!["123456789012345678".into()] }, ..Config::default() } }
+        State { entries: Mutex::new(HashMap::new()), config: Config {
+            general: General::default(),
+            discord: Discord { enabled:true, guild_id:"111111111111111111".into(),
+                channel_id:"222222222222222222".into(),
+                allowed_role_ids: vec!["333333333333333333".into(), "444444444444444444".into()] },
+            ..Config::default()
+        } }
     }
     #[tokio::test]
     async fn approval_is_one_time_and_allowlisted() {
         let state=state();
         let (r,rx)=state.create("alice".into(), "sshd".into(), "192.0.2.1".into()).await.unwrap();
-        assert!(state.finish(&r.request_id, Decision::Approve, "999999999999999999").await.is_err());
-        assert_eq!(state.finish(&r.request_id, Decision::Approve, "123456789012345678").await.unwrap(), Status::Approved);
+        let guild = "111111111111111111";
+        let channel = "222222222222222222";
+        let member_role = vec!["444444444444444444".to_string()];
+        assert!(state.finish(&r.request_id, Decision::Approve, "999999999999999999", "999999999999999999", channel, &member_role).await.is_err());
+        assert!(state.finish(&r.request_id, Decision::Approve, "999999999999999999", guild, "999999999999999999", &member_role).await.is_err());
+        assert!(state.finish(&r.request_id, Decision::Approve, "999999999999999999", guild, channel, &["555555555555555555".to_string()]).await.is_err());
+        assert!(state.finish(&r.request_id, Decision::Approve, "999999999999999999", guild, channel, &[]).await.is_err());
+        // Either permitted role can authorize (OR semantics).
+        assert_eq!(state.finish(&r.request_id, Decision::Approve, "999999999999999999", guild, channel, &member_role).await.unwrap(), Status::Approved);
         assert_eq!(*rx.borrow(), Status::Approved);
-        assert!(state.finish(&r.request_id, Decision::Deny, "123456789012345678").await.is_err());
+        assert!(state.finish(&r.request_id, Decision::Deny, "999999999999999999", guild, channel, &member_role).await.is_err());
     }
     #[tokio::test]
     async fn only_ssh_is_authorizable() {
@@ -326,6 +352,13 @@ mod tests {
         let state=state();
         assert!(state.create("root\nadmin".into(), "sshd".into(), "host".into()).await.is_err());
         assert!(state.create("root".into(), "sshd".into(), "host\rspoof".into()).await.is_err());
+    }
+    #[tokio::test]
+    async fn another_allowed_role_can_deny() {
+        let state = state();
+        let (r, _) = state.create("alice".into(), "sshd".into(), "192.0.2.1".into()).await.unwrap();
+        let outcome = state.finish(&r.request_id, Decision::Deny, "999999999999999999", "111111111111111111", "222222222222222222", &["333333333333333333".to_string()]).await;
+        assert_eq!(outcome.unwrap(), Status::Denied);
     }
     #[test]
     fn public_notification_topics_must_be_hard_to_guess() {
