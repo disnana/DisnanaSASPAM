@@ -2,13 +2,13 @@
 
 **Disnana Simple Advanced Security PAM** — SSH認証に成功した**後**、Discordで承認してからログインさせる、Ubuntu向けの軽量PAMゲートです。
 
-> **Status: v0.1.0-alpha.1 / developer preview.** 現在は未監査の開発版です。SSHへ組み込む前に必ず隔離VMで検証してください。正式Releaseの配布・実機での認証テストはまだ完了していません。
+> **Status: v0.1.0-alpha.2 / developer preview.** 未監査のAlpha版です。Ubuntu CI上でのSSH/PAM統合テストを実施済みですが、FIDOハードウェアとDiscord本番APIを使ったE2Eテストは未実施です。本番SSHに組み込む前に隔離VMと復旧手段を用意してください。
 
 ## 特徴
 
 - **Post-authentication**: SSH公開鍵・FIDO・パスワードなど、一次認証成功後のPAM **account** フェーズに承認チェックを追加
 - **コンソールは対象外**: `/etc/pam.d/sshd` のみ変更。`login`・`sudo`・`su` は保護対象外
-- **Discordで承認と記録**: 許可されたユーザーのみ「Approve / Deny」を操作可能。拒否・期限切れはログイン不可
+- **Discordで承認と記録**: 許可したロール（複数指定可）を持ち、専用チャンネルを閲覧できるメンバーだけが「Approve / Deny」を操作可能。拒否・期限切れはログイン不可
 - **Rust中心**: PAMモジュール、Unix socket認証デーモン、管理CLI。Discord Botは非rootのPythonプロセス
 - **通知を追加**: ntfy / Barkへの通知をオプションで送信可能（**初期版では通知のみ**）
 - **安全に導入・解除**: 既存PAM設定を変更するのは、明示的な `saspam enable` の実行時だけ
@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/
 **プレリリース版をテスト用Ubuntuに導入する場合（Release公開後）**:
 
 ~~~bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.1
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.2
 ~~~
 
 このコマンドもインストールしただけではPAMを有効化しません。正式な安定版のReleaseがまだない間は、バージョン省略のワンコマンドは安全のため失敗します。**Alphaは本番サーバーでの使用を推奨しません。**
@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/
 
 ## 初期設定（必ず既存SSHセッションを残す）
 
-Discord Developer PortalでBotを作成し、Bot Token・通知先Channel ID・承認を許す**ユーザーID（数値）**を用意します。Botにはチャンネル閲覧、メッセージ送信、Embed送信、履歴参照の権限を付与します。Message Content Intentは不要です。
+Discord Developer PortalでBotを作成し、Bot Token・Guild（サーバー）ID・通知先Channel ID・承認を許す**ロールID（数値・複数ならカンマ区切り）**を用意します。専用ロールだけが通知チャンネルを閲覧できるようDiscord側で設定してください。Botにはチャンネル閲覧、メッセージ送信、Embed送信、履歴参照の権限を付与します。Message Content Intentは不要です。
 
 ~~~bash
 sudo saspam setup       # 対話形式で入力、設定を保存しサービスを起動
@@ -67,6 +67,28 @@ sudo saspam enable --ack-recovery --ack-tested
 ~~~
 
 最後のコマンドは、**直近15分以内に成功した承認テスト**と、管理者の復旧経路確認を要求します。初回の有効化後も**既存SSHセッションを閉じずに**、別ターミナルからSSHでログインし、承認・拒否・期限切れをテストしてください。
+
+### Discordロールによる承認
+
+`sudo saspam setup` で、例えば次のように入力する
+
+```text
+Discord server (guild) ID: 111111111111111111
+Discord notification channel ID: 222222222222222222
+Allowed Discord role IDs: 333333333333333333, 444444444444444444
+```
+
+上記では **どちらか1つのロールを持てば承認・拒否できる（OR条件）**。ロールだけではなく、操作するDiscordサーバー・チャンネルの一致と`VIEW_CHANNEL`権限も必要。BotはDiscordのGuild Member interactionに含まれるロール情報を使用し、rootの認証デーモンは設定済みロール／チャンネル／サーバーIDを照合する。`@everyone`ロールを許可することはできない
+
+個別のDiscordユーザーIDを登録する必要はない。ただし、専用ロールを付与できる管理者にも実質的に承認権限を付与できるため、Discordのロール管理権限は慎重に制限すること
+
+**Bot停止・Discord接続断の場合は自動承認しない。** 既定60秒の承認期限を過ぎるとSSHログインを拒否する。認証デーモンが停止している場合はPAMが拒否する
+
+### v0.1.0-alpha.1からの移行
+
+旧バージョンでは承認するユーザーIDを設定していた。新方式は`allowed_role_ids`、`guild_id`、`channel_id`が必須になり、**旧設定は新デーモンでは受理されない（Fail Closed）**
+
+以前のAlpha版が有効な場合は、管理用SSHセッションまたはクラウドコンソールを保持したまま、先に `sudo saspam disable` し、更新後 `sudo saspam setup` でロール設定を再入力すること。セットアップテスト成功後にのみ再度 `enable` する。インストーラーはPAMが有効なままの上書き更新を拒否する
 
 ### よく使うコマンド
 
@@ -113,7 +135,7 @@ sudo journalctl -u saspamd -u saspam-discord -n 100 --no-pager
 
 ## 対応範囲と制限
 
-| 項目 | v0.1.0-alpha.1 |
+| 項目 | v0.1.0-alpha.2 |
 |---|---|
 | Ubuntu / systemd / amd64・arm64 | Ubuntu 22.04/24.04のSSH統合テストをCIで実施（実機・FIDOは未検証） |
 | SSH一次認証後にDiscord承認 | 実装対象 |
