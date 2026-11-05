@@ -27,10 +27,10 @@ CONF
 sudo chmod 0600 /etc/saspam/config.toml
 sudo systemd-run --unit=saspamd-ci --property=Restart=no "$ROOT/target/release/saspamd" --config /etc/saspam/config.toml
 for _ in $(seq 1 60); do
-  [[ -S /run/saspam/pam.sock && -S /run/saspam/bot.sock ]] && break
+  if sudo test -S /run/saspam/pam.sock && sudo test -S /run/saspam/bot.sock; then break; fi
   sleep 0.3
 done
-[[ -S /run/saspam/pam.sock && -S /run/saspam/bot.sock ]] || {
+sudo test -S /run/saspam/pam.sock && sudo test -S /run/saspam/bot.sock || {
   sudo journalctl -u saspamd-ci --no-pager -n 50
   echo 'Daemon IPC unavailable' >&2; exit 1;
 }
