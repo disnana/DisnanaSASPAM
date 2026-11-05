@@ -22,7 +22,7 @@ LOG = logging.getLogger("saspam.discord")
 
 def command(payload: dict[str, Any]) -> dict[str, Any]:
     """One JSON request / response over a root-owned local Unix socket."""
-    wire = json.dumps({"version": 1, **payload}, separators=(",", ":")).encode() + b"\n"
+    wire = json.dumps({"version": 2, **payload}, separators=(",", ":")).encode() + b"\n"
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
         conn.settimeout(5)
         conn.connect(SOCKET_PATH)
@@ -117,7 +117,7 @@ class RequestView(discord.ui.View):
         for decision, label, style in (("approve", "Approve", discord.ButtonStyle.success),
                                        ("deny", "Deny", discord.ButtonStyle.danger)):
             button = discord.ui.Button(label=label, style=style,
-                                       custom_id=f"saspam:v1:{decision}:{request_id}", disabled=done)
+                                       custom_id=f"saspam:v2:{decision}:{request_id}", disabled=done)
             button.callback = self._callback(decision)
             self.add_item(button)
 
