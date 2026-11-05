@@ -229,6 +229,15 @@ fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     let rc = unsafe { libc::getsockopt(stream.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut length) };
     if rc == 0 && length as usize == std::mem::size_of::<libc::ucred>() { Ok(cred.uid) } else { Err(io::Error::last_os_error()) }
 }
+fn named_uid(name: &str) -> io::Result<u32> {
+    let c_name = CString::new(name).map_err(io::Error::other)?;
+    // Called during startup, before the server begins accepting concurrent requests.
+    let entry = unsafe { libc::getpwnam(c_name.as_ptr()) };
+    if entry.is_null() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "dedicated saspam-bot user is missing"));
+    }
+    Ok(unsafe { (*entry).pw_uid })
+}
 fn listen_secure(path: &Path, mode: u32, group_name: Option<&str>) -> io::Result<UnixListener> {
     if path.exists() || fs::symlink_metadata(path).is_ok() {
         let metadata = fs::symlink_metadata(path)?;
@@ -256,6 +265,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     let config_path = args.windows(2).find(|args| args[0] == "--config").map(|a| a[1].clone()).unwrap_or_else(|| "/etc/saspam/config.toml".into());
     let config = Config::load(Path::new(&config_path)).map_err(io::Error::other)?;
+    let bot_uid = named_uid("saspam-bot")?;
     let state = Arc::new(State { entries: Mutex::new(HashMap::new()), config });
     fs::create_dir_all("/run/saspam")?;
     // Bot needs traverse rights on this directory; pam.sock stays root-only.
@@ -279,7 +289,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             result = bot.accept() => {
                 let (stream, _) = result?;
-                tokio::spawn(handle_bot(stream, state.clone()));
+                // Filesystem permissions alone are not enough: reject unrelated
+                // accounts that were accidentally added to the bot group.
+                if matches!(peer_uid(&stream), Ok(uid) if uid == bot_uid || uid == 0) {
+                    tokio::spawn(handle_bot(stream, state.clone()));
+                } else {
+                    eprintln!("saspam rejected unauthorized Bot socket peer");
+                }
             }
         }
     }
