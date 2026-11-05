@@ -1,0 +1,23 @@
+[Unit]
+Description=DisnanaSASPAM SSH approval coordinator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/saspamd --config /etc/saspam/config.toml
+User=root
+Group=root
+UMask=0077
+RuntimeDirectory=saspam
+RuntimeDirectoryMode=0750
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/saspam
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

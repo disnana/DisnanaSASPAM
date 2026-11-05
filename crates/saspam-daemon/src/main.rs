@@ -1,0 +1,313 @@
+//! Root-owned, fail-closed, local-only approval coordinator.
+//! PAM IPC is root-only; the Bot IPC is accessible only to a dedicated group.
+//! There is no publicly reachable approval API in v0.1.x.
+use saspam_protocol::{BotCommand, Decision, PamCommand, PendingRequest, Reply, Status, BOT_SOCKET, PAM_SOCKET, VERSION};
+use serde::Deserialize;
+use std::{collections::HashMap, env, ffi::CString, fs, io, os::{fd::AsRawFd, unix::{fs::{FileTypeExt, PermissionsExt}, net::UnixListener as StdUnixListener}}, path::Path, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{UnixListener, UnixStream}, sync::{watch, Mutex}, time::{self, Instant}};
+
+const MAX_FRAME: usize = 8192;
+const MAX_PENDING: usize = 32;
+const RETENTION_SECS: u64 = 600;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct General { server_name: String, timeout_seconds: u64 }
+impl Default for General {
+    fn default() -> Self { Self { server_name: hostname(), timeout_seconds: 60 } }
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct Discord { enabled: bool, allowed_user_ids: Vec<String> }
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct Ntfy { enabled: bool, server: String, topic: String }
+impl Default for Ntfy { fn default() -> Self { Self { enabled: false, server: "https://ntfy.sh".into(), topic: String::new() } } }
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct Bark { enabled: bool, server: String, device_key: String }
+impl Default for Bark { fn default() -> Self { Self { enabled: false, server: "https://api.day.app".into(), device_key: String::new() } } }
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct Config { general: General, discord: Discord, ntfy: Ntfy, bark: Bark }
+impl Default for Config { fn default() -> Self { Self { general: General::default(), discord: Discord::default(), ntfy: Ntfy::default(), bark: Bark::default() } } }
+impl Config {
+    fn load(path: &Path) -> Result<Self, String> {
+        let raw = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        let config: Config = toml::from_str(&raw).map_err(|e| e.to_string())?;
+        if !(10..=180).contains(&config.general.timeout_seconds) { return Err("timeout must be between 10 and 180 seconds".into()); }
+        if config.general.server_name.is_empty() || config.general.server_name.len() > 128 { return Err("invalid server_name".into()); }
+        // No web approval API in v0.1; never enable a gate that cannot be approved.
+        if !config.discord.enabled || config.discord.allowed_user_ids.is_empty() {
+            return Err("v0.1 requires Discord approval with at least one allowed user ID".into());
+        }
+        if config.discord.allowed_user_ids.iter().any(|id| id.len() < 15 || id.len() > 22 || !id.bytes().all(|b| b.is_ascii_digit())) {
+            return Err("Discord allowed_user_ids must contain numeric snowflake IDs".into());
+        }
+        if config.ntfy.enabled && (!config.ntfy.server.starts_with("https://") || !valid_topic(&config.ntfy.topic)) {
+            return Err("invalid ntfy HTTPS server or topic".into());
+        }
+        if config.bark.enabled && (!config.bark.server.starts_with("https://") || config.bark.device_key.is_empty()) {
+            return Err("invalid Bark HTTPS server or device key".into());
+        }
+        Ok(config)
+    }
+}
+fn valid_topic(topic: &str) -> bool { (24..=64).contains(&topic.len()) && topic.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_') }
+fn hostname() -> String { fs::read_to_string("/etc/hostname").unwrap_or_else(|_| "unknown".into()).trim().to_string() }
+fn unix_now() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
+
+struct Entry { request: PendingRequest, tx: watch::Sender<Status> }
+struct State { entries: Mutex<HashMap<String, Entry>>, config: Config }
+
+fn log_event(event: &str, r: &PendingRequest) {
+    eprintln!("saspam event={event} id={} server={} user={} source={} status={:?} actor={}",
+        r.request_id, r.server_name, r.user, r.remote_host, r.status,
+        r.actor_id.as_deref().unwrap_or("-"));
+}
+impl State {
+    async fn create(&self, user: String, service: String, remote_host: String) -> Result<(PendingRequest, watch::Receiver<Status>), String> {
+        if service != "sshd" || user.is_empty() || user.len() > 128 || remote_host.len() > 255 || remote_host.contains('\n') {
+            return Err("invalid PAM request".into());
+        }
+        let mut guard = self.entries.lock().await;
+        let now = unix_now();
+        guard.retain(|_, v| v.request.expires_unix.saturating_add(RETENTION_SECS) > now);
+        if guard.values().filter(|r| r.request.status == Status::Pending).count() >= MAX_PENDING {
+            return Err("too many pending requests".into());
+        }
+        let (tx, rx) = watch::channel(Status::Pending);
+        let request = PendingRequest {
+            request_id: uuid::Uuid::new_v4().to_string(), user, service, remote_host,
+            server_name: self.config.general.server_name.clone(), created_unix: now,
+            expires_unix: now + self.config.general.timeout_seconds, status: Status::Pending, actor_id: None,
+        };
+        log_event("created", &request);
+        guard.insert(request.request_id.clone(), Entry { request: request.clone(), tx });
+        Ok((request, rx))
+    }
+    async fn finish(&self, id: &str, decision: Decision, actor: &str) -> Result<Status, String> {
+        if !self.config.discord.allowed_user_ids.iter().any(|x| x == actor) { return Err("actor is not allowlisted".into()); }
+        let mut guard = self.entries.lock().await;
+        let entry = guard.get_mut(id).ok_or_else(|| "unknown request".to_string())?;
+        if entry.request.status != Status::Pending { return Err("request already resolved".into()); }
+        if entry.request.expires_unix <= unix_now() {
+            entry.request.status = Status::Expired;
+            entry.tx.send_replace(Status::Expired);
+            log_event("expired", &entry.request);
+            return Err("request expired".into());
+        }
+        let status = match decision { Decision::Approve => Status::Approved, Decision::Deny => Status::Denied };
+        entry.request.status = status.clone();
+        entry.request.actor_id = Some(actor.to_string());
+        entry.tx.send_replace(status.clone());
+        log_event("decided", &entry.request);
+        Ok(status)
+    }
+    async fn expire(&self, id: &str) {
+        if let Some(entry) = self.entries.lock().await.get_mut(id) {
+            if entry.request.status == Status::Pending {
+                entry.request.status = Status::Expired;
+                entry.tx.send_replace(Status::Expired);
+                log_event("expired", &entry.request);
+            }
+        }
+    }
+    async fn get(&self, id: &str) -> Option<PendingRequest> {
+        self.entries.lock().await.get(id).map(|e| e.request.clone())
+    }
+    async fn list_pending(&self) -> Vec<PendingRequest> {
+        let now = unix_now();
+        self.entries.lock().await.values().filter(|v| v.request.status == Status::Pending && v.request.expires_unix > now).map(|v| v.request.clone()).collect()
+    }
+}
+
+async fn read_frame(stream: &mut UnixStream) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    loop {
+        if bytes.len() >= MAX_FRAME { return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large")); }
+        let mut b = [0u8; 1];
+        let n = time::timeout(Duration::from_secs(5), stream.read(&mut b)).await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "IPC read timeout"))??;
+        if n == 0 { return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete frame")); }
+        if b[0] == b'\n' { return Ok(bytes); }
+        bytes.push(b[0]);
+    }
+}
+async fn write_reply(stream: &mut UnixStream, reply: &Reply) -> io::Result<()> {
+    let mut bytes = serde_json::to_vec(reply)?;
+    bytes.push(b'\n');
+    time::timeout(Duration::from_secs(5), stream.write_all(&bytes)).await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "IPC write timeout"))?
+}
+fn status_reply(status: Status) -> Reply { Reply { ok: true, status: Some(status), requests: None, error: None } }
+
+async fn handle_pam(mut stream: UnixStream, state: Arc<State>) {
+    let Ok(data) = read_frame(&mut stream).await else { return; };
+    let cmd: PamCommand = match serde_json::from_slice(&data) {
+        Ok(cmd) => cmd,
+        Err(_) => { let _ = write_reply(&mut stream, &Reply::denied("invalid request")).await; return; }
+    };
+    let reply = match cmd {
+        PamCommand::Probe { version } if version == VERSION => Reply::ok(),
+        PamCommand::Authorize { version, user, service, remote_host } if version == VERSION => {
+            match state.create(user, service, remote_host).await {
+                Ok((request, mut rx)) => {
+                    let notify_config = state.config.clone();
+                    let notify_request = request.clone();
+                    tokio::spawn(async move { notify(&notify_config, &notify_request).await; });
+                    let deadline = Instant::now() + Duration::from_secs(state.config.general.timeout_seconds);
+                    let status = loop {
+                        let current = rx.borrow().clone();
+                        if current != Status::Pending { break current; }
+                        tokio::select! {
+                            _ = time::sleep_until(deadline) => { state.expire(&request.request_id).await; break Status::Expired; }
+                            changed = rx.changed() => {
+                                if changed.is_err() { break Status::Denied; }
+                            }
+                        }
+                    };
+                    status_reply(status)
+                }
+                Err(e) => Reply::denied(&e)
+            }
+        }
+        _ => Reply::denied("unsupported PAM command/version")
+    };
+    let _ = write_reply(&mut stream, &reply).await;
+}
+
+async fn handle_bot(mut stream: UnixStream, state: Arc<State>) {
+    let Ok(data) = read_frame(&mut stream).await else { return; };
+    let cmd: BotCommand = match serde_json::from_slice(&data) {
+        Ok(cmd) => cmd,
+        Err(_) => { let _ = write_reply(&mut stream, &Reply::denied("invalid request")).await; return; }
+    };
+    let response = match cmd {
+        BotCommand::List { version } if version == VERSION => Reply {ok:true,status:None, requests:Some(state.list_pending().await),error:None},
+        BotCommand::Get { version, request_id } if version == VERSION => match state.get(&request_id).await {
+            Some(req) => Reply {ok:true,status:Some(req.status),requests:Some(vec![req]),error:None},
+            None => Reply::denied("not found")
+        },
+        BotCommand::Decide { version, request_id, decision, actor_id } if version == VERSION =>
+            match state.finish(&request_id, decision, &actor_id).await { Ok(s) => status_reply(s), Err(e) => Reply::denied(&e) },
+        _ => Reply::denied("unsupported bot command/version")
+    };
+    let _ = write_reply(&mut stream, &response).await;
+}
+
+async fn notify(config: &Config, r: &PendingRequest) {
+    // Public push services are delivery-only: no approval tokens or login secrets.
+    let msg = format!("SSH login approval requested: {} on {} from {}. Approve in Discord within {} seconds. ID {}",
+        r.user, r.server_name, r.remote_host, config.general.timeout_seconds, r.request_id);
+    let http = match reqwest::Client::builder().timeout(Duration::from_secs(5)).build() {
+        Ok(client) => client,
+        Err(e) => { eprintln!("saspam notification client error: {e}"); return; }
+    };
+    if config.ntfy.enabled {
+        let url = format!("{}/{}", config.ntfy.server.trim_end_matches('/'), config.ntfy.topic);
+        match http.post(url).header("Title", "SASPAM SSH approval request").header("Priority", "high").body(msg.clone()).send().await {
+            Ok(response) if response.status().is_success() => (),
+            Ok(response) => eprintln!("saspam ntfy notification HTTP {}", response.status()),
+            Err(e) => eprintln!("saspam ntfy notification failed: {e}"),
+        }
+    }
+    if config.bark.enabled {
+        let url = format!("{}/push", config.bark.server.trim_end_matches('/'));
+        let body = serde_json::json!({"device_key": config.bark.device_key, "title":"SASPAM SSH approval request", "body":msg, "group":"SASPAM", "level":"timeSensitive"});
+        match http.post(url).json(&body).send().await {
+            Ok(response) if response.status().is_success() => (),
+            Ok(response) => eprintln!("saspam Bark notification HTTP {}", response.status()),
+            Err(e) => eprintln!("saspam Bark notification failed: {e}"),
+        }
+    }
+}
+
+fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let rc = unsafe { libc::getsockopt(stream.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut length) };
+    if rc == 0 && length as usize == std::mem::size_of::<libc::ucred>() { Ok(cred.uid) } else { Err(io::Error::last_os_error()) }
+}
+fn listen_secure(path: &Path, mode: u32, group_name: Option<&str>) -> io::Result<UnixListener> {
+    if path.exists() || fs::symlink_metadata(path).is_ok() {
+        let metadata = fs::symlink_metadata(path)?;
+        if !metadata.file_type().is_socket() { return Err(io::Error::new(io::ErrorKind::AlreadyExists, "socket path is not a socket")); }
+        if std::os::unix::net::UnixStream::connect(path).is_ok() { return Err(io::Error::new(io::ErrorKind::AddrInUse, "daemon already listening")); }
+        fs::remove_file(path)?;
+    }
+    let listener = StdUnixListener::bind(path)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    if let Some(name) = group_name {
+        let c_name = CString::new(name).expect("group name");
+        let group = unsafe { libc::getgrnam(c_name.as_ptr()) };
+        if group.is_null() { return Err(io::Error::new(io::ErrorKind::NotFound, "saspam-bot group missing")); }
+        let gid = unsafe { (*group).gr_gid };
+        let c_path = CString::new(path.as_os_str().as_encoded_bytes()).expect("socket path");
+        if unsafe { libc::chown(c_path.as_ptr(), 0, gid) } != 0 { return Err(io::Error::last_os_error()); }
+    }
+    listener.set_nonblocking(true)?;
+    UnixListener::from_std(listener)
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if unsafe { libc::geteuid() } != 0 { return Err("saspamd must run as root".into()); }
+    let args: Vec<String> = env::args().collect();
+    let config_path = args.windows(2).find(|args| args[0] == "--config").map(|a| a[1].clone()).unwrap_or_else(|| "/etc/saspam/config.toml".into());
+    let config = Config::load(Path::new(&config_path)).map_err(io::Error::other)?;
+    let state = Arc::new(State { entries: Mutex::new(HashMap::new()), config });
+    fs::create_dir_all("/run/saspam")?;
+    // Bot needs traverse rights on this directory; pam.sock stays root-only.
+    let group_name = CString::new("saspam-bot")?;
+    let group = unsafe { libc::getgrnam(group_name.as_ptr()) };
+    if group.is_null() { return Err("saspam-bot group is missing".into()); }
+    let gid = unsafe { (*group).gr_gid };
+    let run_dir = CString::new("/run/saspam")?;
+    if unsafe { libc::chown(run_dir.as_ptr(), 0, gid) } != 0 { return Err(io::Error::last_os_error().into()); }
+    fs::set_permissions("/run/saspam", fs::Permissions::from_mode(0o750))?;
+    let pam = listen_secure(Path::new(PAM_SOCKET), 0o600, None)?;
+    let bot = listen_secure(Path::new(BOT_SOCKET), 0o660, Some("saspam-bot"))?;
+    eprintln!("saspamd ready; PAM gate: sshd/account only; timeout={}s", state.config.general.timeout_seconds);
+    loop {
+        tokio::select! {
+            result = pam.accept() => {
+                let (stream, _) = result?;
+                if peer_uid(&stream).ok() == Some(0) {
+                    tokio::spawn(handle_pam(stream, state.clone()));
+                } else { eprintln!("saspam rejected unprivileged PAM socket peer"); }
+            }
+            result = bot.accept() => {
+                let (stream, _) = result?;
+                tokio::spawn(handle_bot(stream, state.clone()));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn state() -> State {
+        State { entries: Mutex::new(HashMap::new()), config: Config { general: General::default(), discord: Discord { enabled:true, allowed_user_ids: vec!["123456789012345678".into()] }, ..Config::default() } }
+    }
+    #[tokio::test]
+    async fn approval_is_one_time_and_allowlisted() {
+        let state=state();
+        let (r,rx)=state.create("alice".into(), "sshd".into(), "192.0.2.1".into()).await.unwrap();
+        assert!(state.finish(&r.request_id, Decision::Approve, "999999999999999999").await.is_err());
+        assert_eq!(state.finish(&r.request_id, Decision::Approve, "123456789012345678").await.unwrap(), Status::Approved);
+        assert_eq!(*rx.borrow(), Status::Approved);
+        assert!(state.finish(&r.request_id, Decision::Deny, "123456789012345678").await.is_err());
+    }
+    #[tokio::test]
+    async fn only_ssh_is_authorizable() {
+        let state=state();
+        assert!(state.create("root".into(), "login".into(), "local".into()).await.is_err());
+    }
+    #[test]
+    fn public_notification_topics_must_be_hard_to_guess() {
+        assert!(!valid_topic("ssh"));
+        assert!(valid_topic("secure_ssh_a1b2c3d4e5f6g7h8i9j0"));
+    }
+}
