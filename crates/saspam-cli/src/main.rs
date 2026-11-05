@@ -89,6 +89,21 @@ fn write_pam(content: &str) -> Result<(), String> {
     if result.is_err() { let _ = fs::remove_file(temp); }
     result.map_err(|e| e.to_string())
 }
+// Dedicated writer: never chmod /etc/ssh/sshd_config.d like a secrets directory.
+fn write_hardening(path: &Path, data: &str) -> Result<(), String> {
+    let parent = path.parent().ok_or("invalid hardening path")?;
+    let metadata = fs::symlink_metadata(parent).map_err(|e| e.to_string())?;
+    if !metadata.is_dir() || metadata.uid() != 0 {
+        return Err("SSH config directory is not an ordinary root-owned directory".into());
+    }
+    let mut file = OpenOptions::new().create_new(true).write(true).mode(0o644).open(path)
+        .map_err(|e| e.to_string())?;
+    if let Err(e) = file.write_all(data.as_bytes()).and_then(|_| file.sync_all()) {
+        let _ = fs::remove_file(path);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
 fn recent_approval_test() -> bool {
     let test_time = fs::metadata(LAST_TEST).and_then(|m| m.modified());
     let config_time = fs::metadata("/etc/saspam/config.toml").and_then(|m| m.modified());
@@ -261,7 +276,7 @@ fn security(args: &[String]) -> Result<(), String> {
             let dest = Path::new(HARDENING_FILE);
             if dest.exists() { return Err("SASPAM hardening file already exists; use rollback first".into()); }
             fs::create_dir_all(dest.parent().ok_or("invalid path")?).map_err(|e| e.to_string())?;
-            write_private(dest, HARDENING)?;
+            write_hardening(dest, HARDENING)?;
             let validation = (|| -> Result<(), String> {
                 sshd_check(&["-t"])?;
                 for (k,v) in [("maxauthtries","4"),("logingracetime","45"),("maxstartups","10:30:60")] {
@@ -279,9 +294,12 @@ fn security(args: &[String]) -> Result<(), String> {
             let path=Path::new(HARDENING_FILE);
             if !path.exists() { println!("No SASPAM hardening file exists"); return Ok(()); }
             if fs::read_to_string(path).map_err(|e|e.to_string())? != HARDENING { return Err("hardening file was edited; refusing to overwrite manual changes".into()); }
-            fs::remove_file(path).map_err(|e|e.to_string())?;
-            sshd_check(&["-t"])?;
-            reload_ssh()?;
+            fs::remove_file(path).map_err(|e| e.to_string())?;
+            if let Err(e) = sshd_check(&["-t"]).and_then(|_| reload_ssh()) {
+                // Keep the original hardening policy on unexpected rollback failures.
+                write_hardening(path, HARDENING)?;
+                return Err(e);
+            }
             println!("SSH hardening changes removed");
             Ok(())
         }
