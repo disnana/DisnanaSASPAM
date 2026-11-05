@@ -28,6 +28,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Rust unit tests
         run: cargo test --workspace
+      - name: Generate Cargo lockfile for reviewed source bundle
+        if: matrix.arch == 'amd64'
+        run: base64 -w 72 Cargo.lock | sed 's/^/SASPAM_LOCK_CHUNK: /'
       - name: Build release artifacts
         run: cargo build --release --workspace
 
