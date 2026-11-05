@@ -106,7 +106,9 @@ class RequestView(discord.ui.View):
             if not result.get("ok"):
                 await interaction.followup.send("Request already finished, expired, or not permitted.", ephemeral=True)
                 return
-            self.disable_all_items()
+            # discord.py View has no disable_all_items() (that API belongs to Pycord).
+            for item in self.children:
+                item.disabled = True
             req_reply = await request({"action": "get", "request_id": self.request_id})
             if req_reply.get("ok") and req_reply.get("requests") and interaction.message:
                 await interaction.message.edit(embed=embed(req_reply["requests"][0]), view=self)
