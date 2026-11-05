@@ -118,7 +118,9 @@ class RequestView(discord.ui.View):
 
 class SaspamBot(discord.Client):
     def __init__(self, channel_id: int, allowed: frozenset[int]):
-        super().__init__(intents=discord.Intents.none(), allowed_mentions=discord.AllowedMentions.none())
+        intents = discord.Intents.default()
+        intents.message_content = False  # No privileged intent or message reading required
+        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.channel_id = channel_id
         self.allowed = allowed
         self.messages: dict[str, int] = load_state()
