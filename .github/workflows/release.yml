@@ -27,8 +27,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Test and compile
         run: |
-          cargo test --workspace
-          cargo build --release --workspace
+          cargo test --locked --workspace
+          cargo build --locked --release --workspace
       - name: Assemble release bundle
         env:
           ARCH: ${{ matrix.arch }}
