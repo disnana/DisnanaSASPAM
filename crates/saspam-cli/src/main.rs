@@ -139,6 +139,7 @@ fn setup() -> Result<(), String> {
     let channel = ask("Discord notification channel ID (numeric)", "")?;
     if !snowflake(&channel) { return Err("Discord channel ID must be numeric".into()); }
     let roles = parse_role_ids(&ask("Allowed Discord role IDs (comma-separated, ANY matching role can approve)", "")?)?;
+    if roles.contains(&guild) { return Err("Discord @everyone role cannot approve SSH logins; choose a dedicated role".into()); }
     let roles_toml = roles.iter().map(|id| toml_string(id)).collect::<Vec<_>>().join(", ");
     let roles_env = roles.join(",");
     let token = rpassword::prompt_password("Discord Bot Token (hidden): ").map_err(|e| e.to_string())?;
