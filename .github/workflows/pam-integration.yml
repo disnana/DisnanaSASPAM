@@ -1,0 +1,33 @@
+name: SSH PAM integration
+
+on:
+  push:
+    branches: [main, feat/**]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ssh-post-auth:
+    name: Live SSH PAM test (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated runner dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libpam0g-dev openssh-server sshpass
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile release binaries
+        run: cargo build --release --workspace
+      - name: Exercise actual sshd and Linux-PAM account gate
+        run: bash tests/integration/ssh_roundtrip.sh
+      - name: Debug local SSH on failure
+        if: failure()
+        run: |
+          sudo journalctl -u saspamd-ci -u saspam-sshd-ci --no-pager -n 160 || true
+          sudo tail -n 100 /var/log/auth.log 2>/dev/null || true
