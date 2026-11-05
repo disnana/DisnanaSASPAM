@@ -96,8 +96,16 @@ jobs:
             [[ "$TAG" == *-* ]] || { echo 'Automatic stable releases forbidden' >&2; exit 1; }
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "DisnanaSASPAM $TAG"
-            git push origin "refs/tags/$TAG"
+            # A previous interrupted publish may have pushed the tag already.
+            # In that case only retry if the existing tag points to this exact SHA.
+            if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+              git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+              TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+              [[ "$TAG_COMMIT" == "$GITHUB_SHA" ]] || { echo 'Existing tag references another commit' >&2; exit 1; }
+            else
+              git tag -a "$TAG" -m "DisnanaSASPAM $TAG"
+              git push origin "refs/tags/$TAG"
+            fi
           else
             [[ "$GITHUB_REF_NAME" == "$TAG" ]] || exit 1
           fi
