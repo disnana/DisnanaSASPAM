@@ -29,7 +29,7 @@ class DiscordViewTests(unittest.TestCase):
             def settimeout(self, value): pass
             def connect(self, address): pass
             def sendall(self, data): self.sent = data
-            def recv(self, length): return b'{"ok":true}\\n'.replace(b"\\\\n", b"\\n")
+            def recv(self, length): return b'{"ok":true}\n'
         sock = FakeSocket()
         with patch("integrations.discord.bot.socket.socket", return_value=sock):
             self.assertTrue(command({"action": "decide", "request_id": "request-1",
