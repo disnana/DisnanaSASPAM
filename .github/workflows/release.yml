@@ -106,3 +106,36 @@ jobs:
           args=(--title "DisnanaSASPAM $TAG" --generate-notes)
           if [[ "$TAG" == *-* ]]; then args+=(--prerelease); fi
           gh release create "$TAG" "${args[@]}" SHA256SUMS saspam-*.tar.gz
+
+  verify-installer:
+    if: github.event_name == 'push'
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release one-command install and safe uninstall on fresh Ubuntu
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TAG=$(tr -d '\n' < VERSION)
+          curl --proto '=https' --tlsv1.2 -fsSL \
+            https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh \
+            | sudo bash -s -- --version "$TAG"
+          test -x /usr/local/bin/saspam
+          test -x /usr/local/bin/saspamd
+          test -f /usr/local/lib/security/pam_saspam.so
+          sudo saspam status
+          ! grep -q pam_saspam.so /etc/pam.d/sshd
+          sudo saspam uninstall --yes
+          ! test -e /usr/local/lib/security/pam_saspam.so
+          ! grep -q pam_saspam.so /etc/pam.d/sshd
+          echo "Verified remote install / uninstall on $(uname -m)"
