@@ -37,6 +37,14 @@ Discord Botは通常のDiscord APIへ接続するため、**TailscaleやNetBird�
 curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash
 ~~~
 
+**プレリリース版をテスト用Ubuntuに導入する場合（Release公開後）**:
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.1
+~~~
+
+このコマンドもインストールしただけではPAMを有効化しません。正式な安定版のReleaseがまだない間は、バージョン省略のワンコマンドは安全のため失敗します。**Alphaは本番サーバーでの使用を推奨しません。**
+
 特定バージョンを指定する場合:
 
 ~~~bash
@@ -107,7 +115,7 @@ sudo journalctl -u saspamd -u saspam-discord -n 100 --no-pager
 
 | 項目 | v0.1.0-alpha.1 |
 |---|---|
-| Ubuntu / systemd / amd64・arm64 | 開発対象（CIとVM検証が必要） |
+| Ubuntu / systemd / amd64・arm64 | Ubuntu 22.04/24.04のSSH統合テストをCIで実施（実機・FIDOは未検証） |
 | SSH一次認証後にDiscord承認 | 実装対象 |
 | 拒否 / 期限切れ / Bot停止時の拒否 | 実装対象 |
 | ntfy / Bark | **通知のみ** |
