@@ -1,0 +1,75 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PAM build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpam0g-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test and compile
+        run: |
+          cargo test --workspace
+          cargo build --release --workspace
+      - name: Assemble release bundle
+        env:
+          ARCH: ${{ matrix.arch }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p bundle dist
+          cp target/release/saspam target/release/saspamd bundle/
+          cp target/release/libpam_saspam.so bundle/pam_saspam.so
+          cp integrations/discord/bot.py bundle/bot.py
+          cp integrations/discord/requirements.txt bundle/requirements.txt
+          cp systemd/saspamd.service systemd/saspam-discord.service bundle/
+          cp scripts/uninstall.sh bundle/uninstall.sh
+          tar -czf "dist/saspam-${TAG}-linux-${ARCH}.tar.gz" -C bundle \
+            saspam saspamd pam_saspam.so bot.py requirements.txt saspamd.service saspam-discord.service uninstall.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Checksum and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd dist
+          sha256sum saspam-*.tar.gz > SHA256SUMS
+          args=(--title "DisnanaSASPAM $TAG" --generate-notes)
+          if [[ "$TAG" == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$TAG" "${args[@]}" SHA256SUMS saspam-*.tar.gz
