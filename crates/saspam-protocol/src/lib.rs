@@ -76,6 +76,6 @@ mod tests {
         let value = PamCommand::Authorize { version: VERSION, user:"ubuntu".into(), service:"sshd".into(), remote_host:"192.0.2.50".into() };
         let json = serde_json::to_string(&value).unwrap();
         assert!(json.contains("\"action\":\"authorize\""));
-        assert!(matches!(serde_json::from_str::<PamCommand>(&json).unwrap(), PamCommand::Authorize{version:1,..}));
+        assert!(matches!(serde_json::from_str::<PamCommand>(&json).unwrap(), PamCommand::Authorize{version,..} if version == VERSION));
     }
 }
