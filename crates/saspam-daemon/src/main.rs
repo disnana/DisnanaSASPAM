@@ -40,7 +40,7 @@ impl Config {
         // No web approval API in v0.1; never enable a gate that cannot be approved.
         if !config.discord.enabled || !snowflake(&config.discord.guild_id) || !snowflake(&config.discord.channel_id)
             || config.discord.allowed_role_ids.is_empty() || config.discord.allowed_role_ids.len() > 32
-            || config.discord.allowed_role_ids.iter().any(|id| !snowflake(id)) {
+            || config.discord.allowed_role_ids.iter().any(|id| !snowflake(id) || id == &config.discord.guild_id) {
             return Err("Discord guild_id, channel_id and 1-32 allowed_role_ids are required (old user-ID config must be migrated via saspam setup)".into());
         }
         let unique: std::collections::HashSet<_> = config.discord.allowed_role_ids.iter().collect();
