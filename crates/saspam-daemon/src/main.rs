@@ -36,7 +36,7 @@ impl Config {
         let raw = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
         let config: Config = toml::from_str(&raw).map_err(|e| e.to_string())?;
         if !(10..=180).contains(&config.general.timeout_seconds) { return Err("timeout must be between 10 and 180 seconds".into()); }
-        if config.general.server_name.is_empty() || config.general.server_name.len() > 128 { return Err("invalid server_name".into()); }
+        if config.general.server_name.is_empty() || config.general.server_name.len() > 128 || config.general.server_name.chars().any(|c| c.is_control()) { return Err("invalid server_name".into()); }
         // No web approval API in v0.1; never enable a gate that cannot be approved.
         if !config.discord.enabled || config.discord.allowed_user_ids.is_empty() {
             return Err("v0.1 requires Discord approval with at least one allowed user ID".into());
@@ -67,7 +67,7 @@ fn log_event(event: &str, r: &PendingRequest) {
 }
 impl State {
     async fn create(&self, user: String, service: String, remote_host: String) -> Result<(PendingRequest, watch::Receiver<Status>), String> {
-        if service != "sshd" || user.is_empty() || user.len() > 128 || remote_host.len() > 255 || remote_host.contains('\n') {
+        if service != "sshd" || user.is_empty() || user.len() > 128 || remote_host.len() > 255 || user.chars().any(|c| c.is_control()) || remote_host.chars().any(|c| c.is_control()) {
             return Err("invalid PAM request".into());
         }
         let mut guard = self.entries.lock().await;
@@ -304,6 +304,12 @@ mod tests {
     async fn only_ssh_is_authorizable() {
         let state=state();
         assert!(state.create("root".into(), "login".into(), "local".into()).await.is_err());
+    }
+    #[tokio::test]
+    async fn control_characters_cannot_spoof_audit_logs() {
+        let state=state();
+        assert!(state.create("root\nadmin".into(), "sshd".into(), "host".into()).await.is_err());
+        assert!(state.create("root".into(), "sshd".into(), "host\rspoof".into()).await.is_err());
     }
     #[test]
     fn public_notification_topics_must_be_hard_to_guess() {
