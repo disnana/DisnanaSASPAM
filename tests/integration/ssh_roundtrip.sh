@@ -13,6 +13,7 @@ cleanup() {
 trap cleanup EXIT
 
 sudo groupadd --system -f saspam-bot
+id saspam-bot >/dev/null 2>&1 || sudo useradd --system --gid saspam-bot --home-dir /var/lib/saspam-discord --shell /usr/sbin/nologin saspam-bot
 sudo install -d -m 0700 /etc/saspam
 sudo install -d -m 0755 /usr/local/lib/security
 sudo install -m 0644 target/release/libpam_saspam.so /usr/local/lib/security/pam_saspam.so
