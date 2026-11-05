@@ -73,7 +73,8 @@ def embed(req: dict[str, Any]) -> discord.Embed:
     actor = req.get("actor_id")
     if actor:
         e.add_field(name="Decided by", value=f"<@{actor}>", inline=True)
-    e.add_field(name="Expires (UTC)", value=f"<t:{int(req['expires_unix'])}:F>", inline=False)
+    e.add_field(name="Requested", value=f"<t:{int(req['created_unix'])}:F> · <t:{int(req['created_unix'])}:R>", inline=False)
+    e.add_field(name="Expires", value=f"<t:{int(req['expires_unix'])}:F>", inline=False)
     e.set_footer(text="Approval follows successful SSH authentication; no action = deny")
     return e
 
