@@ -30,12 +30,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("decision", choices=("approve", "deny"))
     parser.add_argument("--timeout", type=float, default=15)
+    parser.add_argument("--user", default="saspam-ci")
     args = parser.parse_args()
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
         reply = call({"action": "list"})
         assert reply["ok"], reply
-        matches = [r for r in reply["requests"] if r["user"] == "saspam-ci" and r["status"] == "pending"]
+        matches = [r for r in reply["requests"] if r["user"] == args.user and r["status"] == "pending"]
         if matches:
             row = max(matches, key=lambda r: r["created_unix"])
             result = call({"action": "decide", "request_id": row["request_id"],
