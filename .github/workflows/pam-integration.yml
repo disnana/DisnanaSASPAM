@@ -2,7 +2,7 @@ name: SSH PAM integration
 
 on:
   push:
-    branches: [main, feat/**]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -23,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Compile release binaries
-        run: cargo build --release --workspace
+        run: cargo build --locked --release --workspace
       - name: Exercise actual sshd and Linux-PAM account gate
         run: bash tests/integration/ssh_roundtrip.sh
       - name: Debug local SSH on failure
