@@ -88,6 +88,24 @@ PW_BASE=(sshpass -p 'only-CI-test-password-123' ssh -p "$PORT"
   -o ConnectTimeout=5 -o PubkeyAuthentication=no -o PreferredAuthentications=password
   -o NumberOfPasswordPrompts=1 saspam-ci@127.0.0.1)
 
+echo '== Invalid primary credential MUST NOT reach post-auth PAM =='
+START=$(date +%s)
+if timeout 12 sshpass -p 'invalid-test-only' ssh -p "$PORT" \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o ConnectTimeout=5 -o PubkeyAuthentication=no -o PreferredAuthentications=password \
+  -o NumberOfPasswordPrompts=1 saspam-ci@127.0.0.1 'printf BAD-ACCESS'; then
+  echo 'Invalid SSH password was accepted' >&2; exit 1
+fi
+ELAPSED=$(( $(date +%s) - START ))
+[[ "$ELAPSED" -lt 9 ]] || { echo "Failed credential unexpectedly waited for PAM approval ($ELAPSED s)" >&2; exit 1; }
+sudo python3 - <<'PY'
+import sys
+sys.path.insert(0,"tests/integration")
+from decision_bot import call
+reply=call({"action":"list"})
+assert reply["ok"] and not reply["requests"], "Failed primary auth incorrectly created a pending request"
+PY
+
 echo '== Public key needs approval =='
 sudo python3 tests/integration/decision_bot.py approve --timeout 15 &
 BOT_PID=$!
