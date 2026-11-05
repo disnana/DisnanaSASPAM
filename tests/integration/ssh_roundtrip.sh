@@ -5,7 +5,7 @@ ROOT=$(pwd)
 TMP=$(mktemp -d)
 PORT=22387
 cleanup() {
-  sudo systemctl stop saspam-sshd-ci.service saspamd-ci.service 2>/dev/null || :
+  sudo systemctl stop saspam-sshd-ci.service saspamd-ci.service saspam-discord.service 2>/dev/null || :
   if [[ -f "$TMP/pam-original" ]]; then sudo cp "$TMP/pam-original" /etc/pam.d/sshd; fi
   sudo userdel -r saspam-ci 2>/dev/null || :
   rm -rf "$TMP"
@@ -43,16 +43,24 @@ sudo install -m 0600 -o saspam-ci "$TMP/key.pub" /home/saspam-ci/.ssh/authorized
 sudo ssh-keygen -A >/dev/null
 sudo install -d -m 0755 /run/sshd
 sudo cp /etc/pam.d/sshd "$TMP/pam-original"
-sudo python3 - <<'PY'
-from pathlib import Path
-p=Path("/etc/pam.d/sshd")
-lines=p.read_text().splitlines(keepends=True)
-marker="account required /usr/local/lib/security/pam_saspam.so # DisnanaSASPAM-managed\n"
-assert not any("pam_saspam" in line for line in lines)
-pos=next(i for i,line in enumerate(lines) if line.lstrip().startswith(("account ", "@include common-account")))
-lines.insert(pos,marker)
-p.write_text("".join(lines))
-PY
+sudo install -m 0755 target/release/saspam /usr/local/bin/saspam
+sudo tee /etc/saspam/discord.env >/dev/null <<'ENV'
+DISCORD_TOKEN=CI-only-not-a-real-Discord-token
+DISCORD_CHANNEL_ID=123456789012345678
+DISCORD_ALLOWED_USER_IDS=123456789012345678
+ENV
+sudo chmod 0600 /etc/saspam/discord.env
+# The live Discord API is not contacted by this test; its non-root adapter is
+# replaced by a harmless active service, and a mock socket client casts votes.
+sudo systemd-run --unit=saspam-discord --property=Restart=no /bin/sleep 180
+sudo saspam doctor
+echo '== CLI approval test BEFORE any PAM modification =='
+sudo python3 tests/integration/decision_bot.py approve --user "$USER" --timeout 15 &
+BOT_PID=$!
+sudo saspam test
+wait "$BOT_PID"
+sudo saspam enable --ack-recovery --ack-tested
+grep -Fq 'account required /usr/local/lib/security/pam_saspam.so' /etc/pam.d/sshd
 
 cat >"$TMP/sshd.conf" <<EOF
 Port $PORT
@@ -131,6 +139,10 @@ ELAPSED=$(( $(date +%s) - START ))
 echo '== Daemon offline denies session =='
 sudo systemctl stop saspamd-ci.service
 if timeout 16 "${SSH_BASE[@]}" 'printf BAD-ACCESS'; then echo 'SSH connected without daemon' >&2; exit 1; fi
+echo '== CLI disable removes only SASPAM hook even while daemon is down =='
+sudo saspam disable
+if grep -Fq 'pam_saspam.so' /etc/pam.d/sshd; then echo 'CLI failed to remove PAM hook' >&2; exit 1; fi
+
 echo '== Local PAM stacks untouched =='
 if grep -q 'pam_saspam' /etc/pam.d/login /etc/pam.d/sudo /etc/pam.d/common-account; then echo 'Unexpected local PAM changes' >&2; exit 1; fi
 echo 'Live SSH/PAM tests passed'
