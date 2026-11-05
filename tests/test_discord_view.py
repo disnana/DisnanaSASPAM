@@ -1,7 +1,9 @@
 """Validate Discord role-authorization logic without network calls or secrets."""
 import unittest
+from unittest.mock import patch
+import json
 
-from integrations.discord.bot import RequestView, has_approval_role, parse_role_ids
+from integrations.discord.bot import RequestView, command, has_approval_role, parse_role_ids
 
 GUILD = 111111111111111111
 CHANNEL = 222222222222222222
@@ -17,6 +19,28 @@ class DiscordViewTests(unittest.TestCase):
     def test_completed_view_is_disabled(self):
         view = RequestView("00000000-0000-0000-0000-000000000002", GUILD, CHANNEL, ROLES, done=True)
         self.assertTrue(all(item.disabled for item in view.children))
+
+    def test_bot_sends_protocol_v2_and_role_context(self):
+        class FakeSocket:
+            def __init__(self):
+                self.sent = b""
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def settimeout(self, value): pass
+            def connect(self, address): pass
+            def sendall(self, data): self.sent = data
+            def recv(self, length): return b'{"ok":true}\\n'.replace(b"\\\\n", b"\\n")
+        sock = FakeSocket()
+        with patch("integrations.discord.bot.socket.socket", return_value=sock):
+            self.assertTrue(command({"action": "decide", "request_id": "request-1",
+                                     "decision": "approve", "actor_id": "555555555555555555",
+                                     "guild_id": str(GUILD), "channel_id": str(CHANNEL),
+                                     "role_ids": [str(next(iter(ROLES)))]})["ok"])
+        data = json.loads(sock.sent.decode())
+        self.assertEqual(data["version"], 2)
+        self.assertEqual(data["guild_id"], str(GUILD))
+        self.assertEqual(data["channel_id"], str(CHANNEL))
+        self.assertIn(int(data["role_ids"][0]), ROLES)
 
     def test_comma_separated_role_ids(self):
         self.assertEqual(parse_role_ids("333333333333333333, 444444444444444444"), ROLES)
