@@ -56,6 +56,17 @@ fn ask(prompt: &str, default: &str) -> Result<String, String> {
 }
 fn ask_yes(prompt: &str) -> Result<bool, String> { Ok(ask(prompt, "no")?.eq_ignore_ascii_case("yes")) }
 fn snowflake(id: &str) -> bool { (15..=22).contains(&id.len()) && id.bytes().all(|c| c.is_ascii_digit()) }
+fn parse_role_ids(input: &str) -> Result<Vec<String>, String> {
+    let roles: Vec<String> = input.split(',').map(|id| id.trim().to_string()).collect();
+    if roles.is_empty() || roles.len() > 32 || roles.iter().any(|id| !snowflake(id)) {
+        return Err("enter 1-32 valid Discord role IDs, separated by commas".into());
+    }
+    let distinct: std::collections::HashSet<_> = roles.iter().collect();
+    if roles.len() != distinct.len() {
+        return Err("duplicate Discord role IDs are not allowed".into());
+    }
+    Ok(roles)
+}
 fn toml_string(s: &str) -> String { serde_json::to_string(s).unwrap_or_default() }
 fn write_private(path: &Path, data: &str) -> Result<(), String> {
     let dir = path.parent().ok_or("invalid path")?;
@@ -123,10 +134,13 @@ fn setup() -> Result<(), String> {
     if server.len() > 128 || server.trim().is_empty() || server.contains(['\n','\r']) { return Err("invalid server name".into()); }
     let timeout = ask("Approval timeout (10-180 seconds)", "60")?.parse::<u64>().map_err(|_| "invalid timeout")?;
     if !(10..=180).contains(&timeout) { return Err("timeout must be 10-180".into()); }
-    let allowed = ask("Allowed Discord user ID (numeric)", "")?;
-    if !snowflake(&allowed) { return Err("Discord user ID must be a numeric snowflake".into()); }
-    let channel = ask("Discord channel ID (numeric)", "")?;
-    if !snowflake(&channel) { return Err("Discord channel ID must be a numeric snowflake".into()); }
+    let guild = ask("Discord server (guild) ID (numeric)", "")?;
+    if !snowflake(&guild) { return Err("Discord guild ID must be numeric".into()); }
+    let channel = ask("Discord notification channel ID (numeric)", "")?;
+    if !snowflake(&channel) { return Err("Discord channel ID must be numeric".into()); }
+    let roles = parse_role_ids(&ask("Allowed Discord role IDs (comma-separated, ANY matching role can approve)", "")?)?;
+    let roles_toml = roles.iter().map(|id| toml_string(id)).collect::<Vec<_>>().join(", ");
+    let roles_env = roles.join(",");
     let token = rpassword::prompt_password("Discord Bot Token (hidden): ").map_err(|e| e.to_string())?;
     if token.len() < 30 || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_') { return Err("invalid Discord Bot token format".into()); }
     let ntfy = ask_yes("Enable ntfy notification alerts? (yes/no)")?;
@@ -138,8 +152,8 @@ fn setup() -> Result<(), String> {
     let bark = ask_yes("Enable Bark notification alerts? (yes/no)")?;
     let bark_key = if bark { rpassword::prompt_password("Bark device key (hidden): ").map_err(|e| e.to_string())? } else { String::new() };
     if bark && (bark_key.is_empty() || bark_key.contains(['\n','\r','\"'])) { return Err("invalid Bark device key".into()); }
-    let config = format!("# Owned by root. Do not commit this file.\n[general]\nserver_name = {}\ntimeout_seconds = {}\n\n[discord]\nenabled = true\nallowed_user_ids = [{}]\n\n[ntfy]\nenabled = {}\nserver = \"https://ntfy.sh\"\ntopic = {}\n\n[bark]\nenabled = {}\nserver = \"https://api.day.app\"\ndevice_key = {}\n", toml_string(&server), timeout, toml_string(&allowed), ntfy, toml_string(&ntfy_topic), bark, toml_string(&bark_key));
-    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_CHANNEL_ID={}\nDISCORD_ALLOWED_USER_IDS={}\n", token, channel, allowed);
+    let config = format!("# Owned by root. Do not commit this file.\n[general]\nserver_name = {}\ntimeout_seconds = {}\n\n[discord]\nenabled = true\nguild_id = {}\nchannel_id = {}\nallowed_role_ids = [{}]\n\n[ntfy]\nenabled = {}\nserver = \"https://ntfy.sh\"\ntopic = {}\n\n[bark]\nenabled = {}\nserver = \"https://api.day.app\"\ndevice_key = {}\n", toml_string(&server), timeout, toml_string(&guild), toml_string(&channel), roles_toml, ntfy, toml_string(&ntfy_topic), bark, toml_string(&bark_key));
+    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_GUILD_ID={}\nDISCORD_CHANNEL_ID={}\nDISCORD_APPROVAL_ROLE_IDS={}\n", token, guild, channel, roles_env);
     let path = Path::new("/etc/saspam/config.toml");
     if path.exists() { fs::copy(path, "/etc/saspam/config.toml.bak").map_err(|e| e.to_string())?; }
     write_private(path, &config)?;
@@ -322,4 +336,21 @@ fn uninstall(args: &[String]) -> Result<(), String> {
         println!("SASPAM hook disabled and services stopped. No packaged uninstall helper found; remove files manually.");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::*;
+    #[test]
+    fn comma_separated_roles_are_trimmed() {
+        let ids = parse_role_ids("123456789012345678, 987654321098765432").unwrap();
+        assert_eq!(ids, ["123456789012345678", "987654321098765432"]);
+    }
+    #[test]
+    fn invalid_or_duplicate_roles_fail_closed() {
+        assert!(parse_role_ids("").is_err());
+        assert!(parse_role_ids("123456789012345678,").is_err());
+        assert!(parse_role_ids("123456789012345678,123456789012345678").is_err());
+        assert!(parse_role_ids("123456789012345678,hello").is_err());
+    }
 }
