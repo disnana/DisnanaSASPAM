@@ -4,7 +4,7 @@ use std::{
     env,
     fs::{self, OpenOptions},
     io::{self, BufRead, BufReader, Write},
-    os::unix::{fs::{MetadataExt, PermissionsExt}, net::UnixStream},
+    os::unix::{fs::{MetadataExt, PermissionsExt, OpenOptionsExt}, net::UnixStream},
     path::{Path, PathBuf},
     process::{Command, ExitCode},
     time::{Duration, SystemTime}
