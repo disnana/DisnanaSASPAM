@@ -15,7 +15,7 @@ def call(data):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
         conn.settimeout(3)
         conn.connect(SOCKET)
-        conn.sendall((json.dumps({"version": 1, **data}) + "\n").encode())
+        conn.sendall((json.dumps({"version": 2, **data}) + "\n").encode())
         chunks = bytearray()
         while b"\n" not in chunks:
             part = conn.recv(4096)
@@ -40,13 +40,17 @@ def main():
         if matches:
             row = max(matches, key=lambda r: r["created_unix"])
             result = call({"action": "decide", "request_id": row["request_id"],
-                           "decision": args.decision, "actor_id": "123456789012345678"})
+                           "decision": args.decision, "actor_id": "123456789012345678",
+                           "guild_id": "111111111111111111", "channel_id": "222222222222222222",
+                           "role_ids": ["444444444444444444"]})
             if not result["ok"]:
                 print("Could not decide:", result, file=sys.stderr)
                 return 1
             # Same request cannot be decided twice (replay prevention).
             again = call({"action": "decide", "request_id": row["request_id"],
-                          "decision": "approve", "actor_id": "123456789012345678"})
+                          "decision": "approve", "actor_id": "123456789012345678",
+                          "guild_id": "111111111111111111", "channel_id": "222222222222222222",
+                          "role_ids": ["333333333333333333"]})
             assert not again["ok"], "double decision unexpectedly accepted"
             print("decision="+args.decision+" request="+row["request_id"])
             return 0

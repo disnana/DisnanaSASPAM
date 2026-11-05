@@ -5,7 +5,9 @@ timeout_seconds = 60
 
 [discord]
 enabled = true
-allowed_user_ids = ["123456789012345678"]
+guild_id = "111111111111111111"
+channel_id = "222222222222222222"
+allowed_role_ids = ["333333333333333333", "444444444444444444"]
 
 # These are notification-only in v0.1.x.
 [ntfy]

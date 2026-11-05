@@ -61,6 +61,17 @@ impl Reply {
 mod tests {
     use super::*;
     #[test]
+    fn discord_role_decision_roundtrip() {
+        let value = BotCommand::Decide {
+            version: VERSION, request_id: "00000000-0000-0000-0000-000000000000".into(),
+            decision: Decision::Approve, actor_id: "123456789012345678".into(),
+            guild_id: "111111111111111111".into(), channel_id: "222222222222222222".into(),
+            role_ids: vec!["333333333333333333".into(), "444444444444444444".into()]
+        };
+        let data = serde_json::to_string(&value).unwrap();
+        assert!(matches!(serde_json::from_str::<BotCommand>(&data).unwrap(), BotCommand::Decide { role_ids, .. } if role_ids.len() == 2));
+    }
+    #[test]
     fn json_protocol_roundtrip() {
         let value = PamCommand::Authorize { version: VERSION, user:"ubuntu".into(), service:"sshd".into(), remote_host:"192.0.2.50".into() };
         let json = serde_json::to_string(&value).unwrap();
