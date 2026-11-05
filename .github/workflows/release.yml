@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PAM/SSH test dependencies
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libpam0g-dev openssh-server sshpass
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check version matches source tag
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TAG=$(tr -d '\n' < VERSION)
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]] || exit 1
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$TAG" ]]; then
+            echo "VERSION does not match pushed tag" >&2; exit 1
+          fi
+      - name: Test and compile reproducibly
+        run: |
+          cargo test --locked --workspace
+          cargo build --locked --release --workspace
+      - name: Real SSH login approval/denial regression (amd64)
+        if: matrix.arch == 'amd64'
+        run: bash tests/integration/ssh_roundtrip.sh
+      - name: Assemble release bundle
+        env:
+          ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TAG=$(tr -d '\n' < VERSION)
+          mkdir -p bundle dist
+          cp target/release/saspam target/release/saspamd bundle/
+          cp target/release/libpam_saspam.so bundle/pam_saspam.so
+          cp integrations/discord/bot.py bundle/bot.py
+          cp integrations/discord/requirements.txt bundle/requirements.txt
+          cp systemd/saspamd.service systemd/saspam-discord.service bundle/
+          cp scripts/uninstall.sh bundle/uninstall.sh
+          tar -czf "dist/saspam-${TAG}-linux-${ARCH}.tar.gz" -C bundle \
+            saspam saspamd pam_saspam.so bot.py requirements.txt saspamd.service saspam-discord.service uninstall.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Publish versioned GitHub prerelease / tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TAG=$(tr -d '\n' < VERSION)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, not overwriting artifacts"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "branch" ]]; then
+            [[ "$GITHUB_REF_NAME" == "main" ]] || exit 1
+            [[ "$TAG" == *-* ]] || { echo 'Automatic stable releases forbidden' >&2; exit 1; }
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            # A previous interrupted publish may have pushed the tag already.
+            # In that case only retry if the existing tag points to this exact SHA.
+            if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+              git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+              TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+              [[ "$TAG_COMMIT" == "$GITHUB_SHA" ]] || { echo 'Existing tag references another commit' >&2; exit 1; }
+            else
+              git tag -a "$TAG" -m "DisnanaSASPAM $TAG"
+              git push origin "refs/tags/$TAG"
+            fi
+          else
+            [[ "$GITHUB_REF_NAME" == "$TAG" ]] || exit 1
+          fi
+          cd dist
+          sha256sum saspam-*.tar.gz > SHA256SUMS
+          args=(--title "DisnanaSASPAM $TAG" --generate-notes)
+          if [[ "$TAG" == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$TAG" "${args[@]}" SHA256SUMS saspam-*.tar.gz
+
+  verify-installer:
+    if: github.event_name == 'push'
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release one-command install and safe uninstall on fresh Ubuntu
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TAG=$(tr -d '\n' < VERSION)
+          curl --proto '=https' --tlsv1.2 -fsSL \
+            https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh \
+            | sudo bash -s -- --version "$TAG"
+          test -x /usr/local/bin/saspam
+          test -x /usr/local/bin/saspamd
+          test -f /usr/local/lib/security/pam_saspam.so
+          sudo saspam status
+          ! grep -q pam_saspam.so /etc/pam.d/sshd
+          sudo saspam uninstall --yes
+          ! test -e /usr/local/lib/security/pam_saspam.so
+          ! grep -q pam_saspam.so /etc/pam.d/sshd
+          echo "Verified remote install / uninstall on $(uname -m)"

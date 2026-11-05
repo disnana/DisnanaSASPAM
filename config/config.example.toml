@@ -1,0 +1,19 @@
+# Example only: the CLI creates root-owned /etc/saspam/config.toml
+[general]
+server_name = "example-server"
+timeout_seconds = 60
+
+[discord]
+enabled = true
+allowed_user_ids = ["123456789012345678"]
+
+# These are notification-only in v0.1.x.
+[ntfy]
+enabled = false
+server = "https://ntfy.sh"
+topic = ""
+
+[bark]
+enabled = false
+server = "https://api.day.app"
+device_key = ""

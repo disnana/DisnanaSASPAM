@@ -1,0 +1,46 @@
+name: SSH PAM integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ssh-post-auth:
+    name: Live SSH PAM test (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated runner dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libpam0g-dev openssh-server sshpass
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile release binaries
+        run: cargo build --locked --release --workspace
+      - name: Exercise actual sshd and Linux-PAM account gate
+        run: bash tests/integration/ssh_roundtrip.sh
+      - name: Install from local release build without enabling PAM
+        run: |
+          sudo bash scripts/install-from-build.sh
+          sudo saspam status
+          ! grep -q 'pam_saspam' /etc/pam.d/sshd
+          test -x /usr/local/bin/saspam
+          test -f /usr/local/lib/security/pam_saspam.so
+          sudo saspam uninstall --yes
+          ! test -e /usr/local/lib/security/pam_saspam.so
+      - name: Debug local SSH on failure
+        if: failure()
+        run: |
+          sudo journalctl -u saspamd-ci -u saspam-sshd-ci --no-pager -n 160 || true
+          sudo tail -n 100 /var/log/auth.log 2>/dev/null || true

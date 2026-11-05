@@ -1,0 +1,39 @@
+"""Static scope checks. These do not replace PAM integration tests."""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class StructureTests(unittest.TestCase):
+    def test_account_hook_is_after_primary_authentication(self):
+        pam = (ROOT / "crates/saspam-pam/src/lib.rs").read_text()
+        self.assertIn("pam_sm_acct_mgmt", pam)
+        self.assertIn('service != "sshd"', pam)
+        self.assertNotIn("pam_sm_authenticate(", pam)
+
+    def test_pam_hook_never_installed_into_common_account_or_console(self):
+        cli = (ROOT / "crates/saspam-cli/src/main.rs").read_text()
+        self.assertIn('const PAM_FILE: &str = "/etc/pam.d/sshd"', cli)
+        self.assertNotIn('"/etc/pam.d/common-account"', cli)
+        self.assertNotIn('"/etc/pam.d/login"', cli)
+
+    def test_installer_does_not_run_saspam_enable(self):
+        script = (ROOT / "scripts/install.sh").read_text()
+        self.assertNotIn("sudo saspam enable --ack-recovery --ack-tested\nsystemctl", script)
+        self.assertIn("SHA256SUMS", script)
+        self.assertIn("sha256sum -c -", script)
+
+    def test_ssh_hardening_does_not_restrict_config_dir(self):
+        cli = (ROOT / "crates/saspam-cli/src/main.rs").read_text()
+        self.assertIn("write_hardening(dest, HARDENING)", cli)
+        self.assertNotIn("write_private(dest, HARDENING)", cli)
+
+    def test_bot_runs_without_root(self):
+        unit = (ROOT / "systemd/saspam-discord.service").read_text()
+        self.assertIn("User=saspam-bot", unit)
+        self.assertIn("NoNewPrivileges=yes", unit)
+
+
+if __name__ == "__main__":
+    unittest.main()

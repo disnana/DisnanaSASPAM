@@ -1,0 +1,26 @@
+[Unit]
+Description=DisnanaSASPAM Discord approval bot
+After=network-online.target saspamd.service
+Wants=network-online.target
+Requires=saspamd.service
+
+[Service]
+Type=simple
+User=saspam-bot
+Group=saspam-bot
+EnvironmentFile=/etc/saspam/discord.env
+ExecStart=/opt/saspam/venv/bin/python /opt/saspam/discord/bot.py
+WorkingDirectory=/var/lib/saspam-discord
+StateDirectory=saspam-discord
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/saspam-discord
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
