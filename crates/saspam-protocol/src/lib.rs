@@ -2,7 +2,7 @@
 //! No PAM credentials or SSH private key material ever cross this boundary.
 use serde::{Deserialize, Serialize};
 
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 pub const PAM_SOCKET: &str = "/run/saspam/pam.sock";
 pub const BOT_SOCKET: &str = "/run/saspam/bot.sock";
 
@@ -18,7 +18,7 @@ pub enum PamCommand {
 pub enum BotCommand {
     List { version: u8 },
     Get { version: u8, request_id: String },
-    Decide { version: u8, request_id: String, decision: Decision, actor_id: String },
+    Decide { version: u8, request_id: String, decision: Decision, actor_id: String, guild_id: String, channel_id: String, role_ids: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,10 +61,21 @@ impl Reply {
 mod tests {
     use super::*;
     #[test]
+    fn discord_role_decision_roundtrip() {
+        let value = BotCommand::Decide {
+            version: VERSION, request_id: "00000000-0000-0000-0000-000000000000".into(),
+            decision: Decision::Approve, actor_id: "123456789012345678".into(),
+            guild_id: "111111111111111111".into(), channel_id: "222222222222222222".into(),
+            role_ids: vec!["333333333333333333".into(), "444444444444444444".into()]
+        };
+        let data = serde_json::to_string(&value).unwrap();
+        assert!(matches!(serde_json::from_str::<BotCommand>(&data).unwrap(), BotCommand::Decide { role_ids, .. } if role_ids.len() == 2));
+    }
+    #[test]
     fn json_protocol_roundtrip() {
         let value = PamCommand::Authorize { version: VERSION, user:"ubuntu".into(), service:"sshd".into(), remote_host:"192.0.2.50".into() };
         let json = serde_json::to_string(&value).unwrap();
         assert!(json.contains("\"action\":\"authorize\""));
-        assert!(matches!(serde_json::from_str::<PamCommand>(&json).unwrap(), PamCommand::Authorize{version:1,..}));
+        assert!(matches!(serde_json::from_str::<PamCommand>(&json).unwrap(), PamCommand::Authorize{version,..} if version == VERSION));
     }
 }

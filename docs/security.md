@@ -27,3 +27,13 @@
 - 安全な配布は署名済みReleaseを目標とする。初期SHA-256は独立した発行者署名ではない
 
 脆弱性はIssueで公開せず、GitHubのprivate vulnerability reporting等で非公開報告をお願いします。
+
+
+## Discordロール承認
+
+- Guild ID・Channel ID・メンバーのロールIDが設定と一致し、チャンネル閲覧権限がある場合のみ承認可能
+- 複数ロールはOR判定。専用ロールのどれか1つで許可する
+- `@everyone`ロールは承認ロールとして指定できない
+- Discord Gatewayから受け取ったMemberロール情報を非root Botが照合し、root daemonが許可ロールと一致を再確認
+- Botを侵害された場合はIPC経由でロール情報を偽装できる危険が残る。Botトークン、専用プロセス、Unix Socketの権限を保護する
+- Discord Botが死んでいてもFail Closed。デーモンが動作中なら期限切れまで待って拒否。デーモンがない場合は直ちにPAMが拒否

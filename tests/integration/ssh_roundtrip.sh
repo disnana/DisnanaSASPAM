@@ -23,7 +23,9 @@ server_name = "CI-SSH-POSTAUTH"
 timeout_seconds = 10
 [discord]
 enabled = true
-allowed_user_ids = ["123456789012345678"]
+guild_id = "111111111111111111"
+channel_id = "222222222222222222"
+allowed_role_ids = ["333333333333333333", "444444444444444444"]
 CONF
 sudo chmod 0600 /etc/saspam/config.toml
 sudo systemd-run --unit=saspamd-ci --property=Restart=no "$ROOT/target/release/saspamd" --config /etc/saspam/config.toml
@@ -47,8 +49,9 @@ sudo cp /etc/pam.d/sshd "$TMP/pam-original"
 sudo install -m 0755 target/release/saspam /usr/local/bin/saspam
 sudo tee /etc/saspam/discord.env >/dev/null <<'ENV'
 DISCORD_TOKEN=CI-only-not-a-real-Discord-token
-DISCORD_CHANNEL_ID=123456789012345678
-DISCORD_ALLOWED_USER_IDS=123456789012345678
+DISCORD_GUILD_ID=111111111111111111
+DISCORD_CHANNEL_ID=222222222222222222
+DISCORD_APPROVAL_ROLE_IDS=333333333333333333,444444444444444444
 ENV
 sudo chmod 0600 /etc/saspam/discord.env
 # The live Discord API is not contacted by this test; its non-root adapter is
