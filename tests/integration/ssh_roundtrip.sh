@@ -57,6 +57,11 @@ sudo chmod 0600 /etc/saspam/discord.env
 # The live Discord API is not contacted by this test; its non-root adapter is
 # replaced by a harmless active service, and a mock socket client casts votes.
 sudo systemd-run --unit=saspam-discord --property=Restart=no /bin/sleep 180
+sudo /usr/local/bin/saspamd --check-config --config /etc/saspam/config.toml
+# A disabled ntfy provider must be rejected without sending a notification.
+if sudo /usr/local/bin/saspam notify test ntfy >/dev/null 2>&1; then
+  echo 'Disabled notification provider was accepted' >&2; exit 1
+fi
 sudo saspam doctor
 echo '== CLI approval test BEFORE any PAM modification =='
 sudo python3 tests/integration/decision_bot.py approve --user "$USER" --timeout 15 &
