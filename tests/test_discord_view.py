@@ -56,6 +56,24 @@ class DiscordViewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             notification_mention("bad-mode", ROLES)
 
+    def test_authentication_method_field_hidden_by_default(self):
+        for status in ("pending", "approved", "denied", "expired"):
+            request = {
+                "request_id": "00000000-0000-0000-0000-000000000001",
+                "user": "ubuntu", "remote_host": "192.0.2.1",
+                "server_name": "vm", "status": status,
+                "auth_methods": ["fido_ecdsa_sk", "password"],
+            }
+            for lang in ("ja", "en"):
+                fields = embed(request, lang).fields
+                self.assertFalse(any("認証方式" in f.name or "authentication method" in f.name
+                                     for f in fields))
+                self.assertFalse(any("FIDO" in f.value or "Unknown" in f.value for f in fields))
+        request = {"status": "pending", "user": "ubuntu", "remote_host": "192.0.2.1",
+                   "server_name": "vm", "request_id": "00000000-0000-0000-0000-000000000002"}
+        self.assertFalse(any("認証方式" in f.name for f in embed(request).fields))
+        self.assertTrue(any("不明（取得不可）" in f.value for f in embed(request, auth_mode="experimental").fields))
+
     def test_primary_ssh_auth_methods_are_localized(self):
         base = {
             "request_id": "00000000-0000-0000-0000-000000000001",
@@ -72,16 +90,16 @@ class DiscordViewTests(unittest.TestCase):
         ]:
             with self.subTest(method=method):
                 base["auth_methods"] = [method]
-                self.assertTrue(any(ja in field.value for field in embed(base, "ja").fields))
-                self.assertTrue(any(en in field.value for field in embed(base, "en").fields))
+                self.assertTrue(any(ja in field.value for field in embed(base, "ja", auth_mode="experimental").fields))
+                self.assertTrue(any(en in field.value for field in embed(base, "en", auth_mode="experimental").fields))
         base["auth_methods"] = ["public_key", "password"]
-        self.assertTrue(any("公開鍵認証 + パスワード認証" in field.value for field in embed(base, "ja").fields))
+        self.assertTrue(any("公開鍵認証 + パスワード認証" in field.value for field in embed(base, "ja", auth_mode="experimental").fields))
         base["auth_methods"] = ["public_key", "public_key"]
-        self.assertTrue(any("公開鍵認証 + 公開鍵認証" in field.value for field in embed(base, "ja").fields))
+        self.assertTrue(any("公開鍵認証 + 公開鍵認証" in field.value for field in embed(base, "ja", auth_mode="experimental").fields))
         base.pop("auth_methods")
-        self.assertTrue(any("不明（取得不可）" in field.value for field in embed(base, "ja").fields))
+        self.assertTrue(any("不明（取得不可）" in field.value for field in embed(base, "ja", auth_mode="experimental").fields))
         base["auth_methods"] = ["unknown"]
-        self.assertTrue(any("Unknown" in field.value for field in embed(base, "en").fields))
+        self.assertTrue(any("Unknown" in field.value for field in embed(base, "en", auth_mode="experimental").fields))
 
     def test_japanese_embed_pending_and_completed_states(self):
         req = {

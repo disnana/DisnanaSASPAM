@@ -54,10 +54,10 @@ fn help() {
     let lang = settings::current_language();
     let common = "\n  sudo saspam doctor / test / status\n  sudo saspam enable --ack-recovery --ack-tested\n  sudo saspam disable\n  sudo saspam security audit|apply|rollback\n  sudo saspam uninstall --yes";
     if lang == "en" {
-        println!("DisnanaSASPAM v{} | SSH post-authentication approval\n  saspam / saspam menu            Interactive dashboard\n  sudo saspam setup               Initial setup / language\n  sudo saspam config              Partial settings menu\n  sudo saspam config show         Display current settings\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [VALUE]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update / update --latest / update --list
+        println!("DisnanaSASPAM v{} | SSH post-authentication approval\n  saspam / saspam menu            Interactive dashboard\n  sudo saspam setup               Initial setup / language\n  sudo saspam config              Partial settings menu\n  sudo saspam config show         Display current settings\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [VALUE]\n  sudo saspam config set bark on|off|key\n  sudo saspam config set auth-methods off|experimental\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update / update --latest / update --list
   sudo saspam update --version vX.Y.Z[-alpha.N]{}\nConsole, sudo, su are not modified.",env!("CARGO_PKG_VERSION"),common);
     } else {
-        println!("DisnanaSASPAM v{} | SSH認証成功後の追加承認\n  saspam / saspam menu            対話形式の管理メニュー\n  sudo saspam setup               初期設定・言語選択\n  sudo saspam config              一部設定だけを変更\n  sudo saspam config show         現在の設定\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [値]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\n物理コンソール・sudo・suは変更しません",env!("CARGO_PKG_VERSION"),common);
+        println!("DisnanaSASPAM v{} | SSH認証成功後の追加承認\n  saspam / saspam menu            対話形式の管理メニュー\n  sudo saspam setup               初期設定・言語選択\n  sudo saspam config              一部設定だけを変更\n  sudo saspam config show         現在の設定\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [値]\n  sudo saspam config set bark on|off|key\n  sudo saspam config set auth-methods off|experimental\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\n物理コンソール・sudo・suは変更しません",env!("CARGO_PKG_VERSION"),common);
     }
 }
 fn tr(ja: &'static str, en: &'static str) -> &'static str {
@@ -193,7 +193,7 @@ fn setup() -> Result<(), String> {
     let bark_key = if bark { rpassword::prompt_password(interactive::t(&lang,"Barkデバイスキー（非表示）: ","Bark device key (hidden): ")).map_err(|e| e.to_string())? } else { String::new() };
     if bark && (bark_key.is_empty() || bark_key.contains(['\n','\r','\"'])) { return Err("invalid Bark device key".into()); }
     let config = format!("# Owned by root. Do not commit this file.\n[general]\nserver_name = {}\ntimeout_seconds = {}\nlanguage = {}\n\n[discord]\nenabled = true\nguild_id = {}\nchannel_id = {}\nallowed_role_ids = [{}]\n\n[ntfy]\nenabled = {}\nserver = \"https://ntfy.sh\"\ntopic = {}\n\n[bark]\nenabled = {}\nserver = \"https://api.day.app\"\ndevice_key = {}\n", toml_string(&server), timeout, toml_string(&lang), toml_string(&guild), toml_string(&channel), roles_toml, ntfy, toml_string(&ntfy_topic), bark, toml_string(&bark_key));
-    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_GUILD_ID={}\nDISCORD_CHANNEL_ID={}\nDISCORD_APPROVAL_ROLE_IDS={}\nDISCORD_MENTION_MODE={}\nDISCORD_LANGUAGE={}\n", token, guild, channel, roles_env, mention_mode, lang);
+    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_GUILD_ID={}\nDISCORD_CHANNEL_ID={}\nDISCORD_APPROVAL_ROLE_IDS={}\nDISCORD_MENTION_MODE={}\nDISCORD_LANGUAGE={}\nSASPAM_AUTH_METHOD_DISPLAY=off\n", token, guild, channel, roles_env, mention_mode, lang);
     let path = Path::new("/etc/saspam/config.toml");
     if path.exists() { fs::copy(path, "/etc/saspam/config.toml.bak").map_err(|e| e.to_string())?; }
     write_private(path, &config)?;
@@ -271,6 +271,7 @@ fn status() -> Result<(), String> {
     println!("{}: {}",tr("設定ファイル","Configuration"),if config{yes}else{no});
     println!("{}: {}",tr("直近15分の承認テスト","Recent approval test (15 min)"),if test{yes}else{no});
     println!("{}: {}",tr("言語","Language"),lang);
+    println!("{}: {}",tr("認証方式表示","Authentication-method display"),settings::auth_method_mode());
     if active && (!daemon || !bot) {
         println!("\n[!] {}",tr(
             "SSH保護が有効ですがサービスが停止しています。新規SSHログインは拒否されるため、復旧コンソールを確認してください",
