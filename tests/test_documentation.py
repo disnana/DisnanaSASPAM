@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 TOPICS = ("installation", "architecture", "recovery", "security", "updates")
-MARKDOWN_LINK = re.compile(r"(?<!!)\\[[^\\]]+\\]\\(([^)]+)\\)")
+MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 
 
 class BilingualDocumentationTests(unittest.TestCase):
