@@ -112,7 +112,9 @@ def embed(req: dict[str, Any], language: str = "ja") -> discord.Embed:
     auth_labels = {
         "public_key": ("公開鍵認証", "Public key"),
         "password": ("パスワード認証", "Password"),
-        "fido": ("FIDO認証", "FIDO security key"),
+        "fido": ("公開鍵認証（FIDO対応鍵）", "Public key (FIDO-backed)"),
+        "fido_ecdsa_sk": ("公開鍵認証（FIDO / ECDSA-SK）", "Public key (FIDO / ECDSA-SK)"),
+        "fido_ed25519_sk": ("公開鍵認証（FIDO / Ed25519-SK）", "Public key (FIDO / Ed25519-SK)"),
         "keyboard_interactive": ("キーボード対話認証", "Keyboard-interactive"),
         "hostbased": ("ホストベース認証", "Host-based"),
         "unknown": ("不明（取得不可）", "Unknown (unavailable)"),

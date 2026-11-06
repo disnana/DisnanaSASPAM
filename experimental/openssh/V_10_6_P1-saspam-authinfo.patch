@@ -1,0 +1,40 @@
+--- a/monitor.c
++++ b/monitor.c
+@@ -1136,9 +1136,37 @@
+ 
+ 	if (!options.use_pam)
+ 		fatal_f("PAM not enabled");
+ 
++	/*
++	 * SASPAM experimental privileged-monitor integration.
++	 * The monitor has finished verifying the SSH authentication method
++	 * at this point.  Its session_info is not populated until after
++	 * PAM account checks, so expose only a bounded method identifier.
++	 * This does NOT change SSH authorization or bypass PAM.
++	 */
++	{
++		char info[160];
++		const char *key_alg = NULL;
++		if (strcmp(auth_method, "publickey") == 0 &&
++		    authctxt->auth_method_key != NULL)
++			key_alg = sshkey_ssh_name(authctxt->auth_method_key);
++		if (key_alg != NULL) {
++			if (snprintf(info, sizeof(info), "publickey %s",
++			    key_alg) >= (int)sizeof(info))
++				fatal_f("auth method identifier too long");
++		} else if (strcmp(auth_method, "password") == 0 ||
++		    strcmp(auth_method, "keyboard-interactive") == 0 ||
++		    strcmp(auth_method, "hostbased") == 0) {
++			strlcpy(info, auth_method, sizeof(info));
++		} else {
++			strlcpy(info, "unknown", sizeof(info));
++		}
++		if (do_pam_putenv("SASPAM_VERIFIED_AUTH_INFO_0", info) != 0)
++			error_f("could not expose SSH authentication method");
++	}
++	
+ 	ret = do_pam_account();
+ 
+ 	if ((r = sshbuf_put_u32(m, ret)) != 0 ||
+ 	    (r = sshbuf_put_stringb(m, loginmsg)) != 0)
+ 		fatal_fr(r, "buffer error");

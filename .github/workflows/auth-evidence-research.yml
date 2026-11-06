@@ -1,0 +1,26 @@
+name: Investigate verified SSH auth method before PAM
+on:
+  push:
+    branches: [research/verified-ssh-auth-method]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install temporary test dependencies
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libpam0g-dev openssh-server sshpass
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile unchanged SASPAM for disposable SSH test
+        run: cargo build --locked --release --workspace
+      - name: Compare trusted auth logs before and after actual PAM approval
+        run: bash tests/integration/auth_method_probe.sh

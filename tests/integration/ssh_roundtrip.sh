@@ -86,8 +86,11 @@ AllowUsers saspam-ci
 MaxAuthTries 3
 LogLevel VERBOSE
 EOF
-sudo /usr/sbin/sshd -t -f "$TMP/sshd.conf"
-sudo systemd-run --unit=saspam-sshd-ci --property=Restart=no /usr/sbin/sshd -D -e -f "$TMP/sshd.conf"
+# For the research job, run an independently built, patched upstream sshd on
+# a localhost-only test port. The system sshd package is never replaced.
+SSHD_EXEC="${SASPAM_TEST_SSHD_BIN:-/usr/sbin/sshd}"
+sudo "$SSHD_EXEC" -t -f "$TMP/sshd.conf"
+sudo systemd-run --unit=saspam-sshd-ci --property=Restart=no "$SSHD_EXEC" -D -e -f "$TMP/sshd.conf"
 for _ in $(seq 1 50); do
   if python3 - "$PORT" <<'PY' >/dev/null 2>&1
 import socket,sys
@@ -124,17 +127,33 @@ assert reply["ok"] and not reply["requests"], "Failed primary auth incorrectly c
 PY
 
 echo '== Public key needs approval and must report public_key =='
-sudo python3 tests/integration/decision_bot.py approve --valid-auth public_key,unknown --timeout 15 &
+sudo python3 tests/integration/decision_bot.py approve --valid-auth public_key --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${SSH_BASE[@]}" 'printf APPROVED')
 wait "$BOT_PID"
 [[ "$OUT" == "APPROVED" ]] || { echo "Unexpected key SSH output: $OUT" >&2; exit 1; }
 echo '== Password needs approval and must report password =='
-sudo python3 tests/integration/decision_bot.py approve --valid-auth password,unknown --timeout 15 &
+sudo python3 tests/integration/decision_bot.py approve --valid-auth password --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${PW_BASE[@]}" 'printf APPROVED-PASSWORD')
 wait "$BOT_PID"
 [[ "$OUT" == "APPROVED-PASSWORD" ]] || { echo "Unexpected password SSH output: $OUT" >&2; exit 1; }
+if [[ "${SASPAM_TEST_DUMMY_FIDO:-}" == 1 ]]; then
+  echo '== Software-emulated ECDSA-SK public key with exact FIDO method classification =='
+  test -f "${SASPAM_TEST_SK_PROVIDER:?provider required}"
+  SK_KEY="$TMP/test_ecdsa_sk"
+  "${SASPAM_TEST_KEYGEN:?keygen required}" -q -t ecdsa-sk \
+    -w "$SASPAM_TEST_SK_PROVIDER" -N '' -f "$SK_KEY"
+  sudo sh -c 'cat "$1" >> "$2"' sh "$SK_KEY.pub" /home/saspam-ci/.ssh/authorized_keys
+  sudo python3 tests/integration/decision_bot.py approve --valid-auth fido_ecdsa_sk --timeout 15 &
+  FIDO_BOT_PID=$!
+  FIDO_OUTPUT=$(timeout 28 "${SASPAM_TEST_SSH:?ssh required}" -p "$PORT" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=5 -o SecurityKeyProvider="$SASPAM_TEST_SK_PROVIDER" \
+    -o BatchMode=yes -i "$SK_KEY" saspam-ci@127.0.0.1 'printf ECDSA-SK-APPROVED')
+  wait "$FIDO_BOT_PID"
+  [[ "$FIDO_OUTPUT" == "ECDSA-SK-APPROVED" ]] || { echo "Unexpected FIDO output: $FIDO_OUTPUT" >&2; exit 1; }
+fi
 echo '== Deny prevents session =='
 sudo python3 tests/integration/decision_bot.py deny --timeout 15 &
 BOT_PID=$!

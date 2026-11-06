@@ -35,7 +35,11 @@ fn parse_auth_info(raw: Option<&str>) -> Vec<AuthMethod> {
             "password" => AuthMethod::Password,
             "publickey" => {
                 let algorithm = words.next().unwrap_or("");
-                if algorithm.starts_with("sk-") && algorithm.ends_with("@openssh.com") {
+                if algorithm.starts_with("sk-ecdsa-sha2-nistp256") && algorithm.ends_with("@openssh.com") {
+                    AuthMethod::FidoEcdsaSk
+                } else if algorithm.starts_with("sk-ssh-ed25519") && algorithm.ends_with("@openssh.com") {
+                    AuthMethod::FidoEd25519Sk
+                } else if algorithm.starts_with("sk-") && algorithm.ends_with("@openssh.com") {
                     AuthMethod::Fido
                 } else { AuthMethod::PublicKey }
             },
@@ -50,12 +54,19 @@ fn parse_auth_info(raw: Option<&str>) -> Vec<AuthMethod> {
 }
 
 fn auth_methods_from_pam(pamh: *mut PamHandle) -> Vec<AuthMethod> {
-    const NAME: &[u8] = b"SSH_AUTH_INFO_0\0";
-    let ptr = unsafe { pam_getenv(pamh, NAME.as_ptr().cast::<c_char>()) };
-    if ptr.is_null() { return vec![AuthMethod::Unknown]; }
-    let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes();
-    if bytes.len() > 8192 { return vec![AuthMethod::Unknown]; }
-    parse_auth_info(std::str::from_utf8(bytes).ok())
+    // Stock OpenSSH often exposes SSH_AUTH_INFO_0 as empty at account time.
+    // Experimental patched monitor offers verified method+algorithm only.
+    const VERIFIED_NAME: &[u8] = b"SASPAM_VERIFIED_AUTH_INFO_0\0";
+    const STOCK_NAME: &[u8] = b"SSH_AUTH_INFO_0\0";
+    for name in [VERIFIED_NAME, STOCK_NAME] {
+        let ptr = unsafe { pam_getenv(pamh, name.as_ptr().cast::<c_char>()) };
+        if ptr.is_null() { continue; }
+        let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes();
+        if bytes.len() > 8192 { continue; }
+        let methods = parse_auth_info(std::str::from_utf8(bytes).ok());
+        if methods != vec![AuthMethod::Unknown] { return methods; }
+    }
+    vec![AuthMethod::Unknown]
 }
 
 fn check(pamh: *mut PamHandle) -> c_int {
@@ -95,8 +106,8 @@ mod tests {
     fn recognizes_completed_auth_methods_without_exposing_ssh_key_material() {
         assert_eq!(parse_auth_info(Some("password\n")), vec![AuthMethod::Password]);
         assert_eq!(parse_auth_info(Some("publickey ssh-ed25519 AAAAC3NzaSecretKeyData\n")), vec![AuthMethod::PublicKey]);
-        assert_eq!(parse_auth_info(Some("publickey sk-ssh-ed25519@openssh.com AAAAFidoData\n")), vec![AuthMethod::Fido]);
-        assert_eq!(parse_auth_info(Some("publickey sk-ecdsa-sha2-nistp256@openssh.com AAAAFidoData\n")), vec![AuthMethod::Fido]);
+        assert_eq!(parse_auth_info(Some("publickey sk-ssh-ed25519@openssh.com AAAAFidoData\n")), vec![AuthMethod::FidoEd25519Sk]);
+        assert_eq!(parse_auth_info(Some("publickey sk-ecdsa-sha2-nistp256@openssh.com AAAAFidoData\n")), vec![AuthMethod::FidoEcdsaSk]);
         assert_eq!(parse_auth_info(Some("keyboard-interactive/pam\n")), vec![AuthMethod::KeyboardInteractive]);
     }
     #[test]
