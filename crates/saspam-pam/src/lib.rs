@@ -50,12 +50,19 @@ fn parse_auth_info(raw: Option<&str>) -> Vec<AuthMethod> {
 }
 
 fn auth_methods_from_pam(pamh: *mut PamHandle) -> Vec<AuthMethod> {
-    const NAME: &[u8] = b"SSH_AUTH_INFO_0\0";
-    let ptr = unsafe { pam_getenv(pamh, NAME.as_ptr().cast::<c_char>()) };
-    if ptr.is_null() { return vec![AuthMethod::Unknown]; }
-    let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes();
-    if bytes.len() > 8192 { return vec![AuthMethod::Unknown]; }
-    parse_auth_info(std::str::from_utf8(bytes).ok())
+    // Stock OpenSSH often exposes SSH_AUTH_INFO_0 as empty at account time.
+    // Experimental patched monitor offers verified method+algorithm only.
+    const VERIFIED_NAME: &[u8] = b"SASPAM_VERIFIED_AUTH_INFO_0\0";
+    const STOCK_NAME: &[u8] = b"SSH_AUTH_INFO_0\0";
+    for name in [VERIFIED_NAME, STOCK_NAME] {
+        let ptr = unsafe { pam_getenv(pamh, name.as_ptr().cast::<c_char>()) };
+        if ptr.is_null() { continue; }
+        let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes();
+        if bytes.len() > 8192 { continue; }
+        let methods = parse_auth_info(std::str::from_utf8(bytes).ok());
+        if methods != vec![AuthMethod::Unknown] { return methods; }
+    }
+    vec![AuthMethod::Unknown]
 }
 
 fn check(pamh: *mut PamHandle) -> c_int {
