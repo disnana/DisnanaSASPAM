@@ -1,0 +1,50 @@
+name: Research OpenSSH verified auth bridge (not for production)
+on:
+  push:
+    branches: [research/verified-ssh-auth-method]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patched-sshd:
+    name: Patched OpenSSH auth method validation (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PAM / OpenSSH research dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential             libpam0g-dev openssh-server sshpass libssl-dev zlib1g-dev             libtool autoconf automake pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build research SASPAM
+        run: cargo build --locked --release --workspace
+      - name: Obtain pinned upstream OpenSSH portable sources
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet https://github.com/openssh/openssh-portable.git _openssh
+          cd _openssh
+          git checkout --quiet a8c72b842423f0774f542d3c2197247c3dd28d74
+          test "$(git rev-parse HEAD)" = a8c72b842423f0774f542d3c2197247c3dd28d74
+          patch --dry-run -p1 < ../experimental/openssh/V_10_6_P1-saspam-authinfo.patch
+          patch -p1 < ../experimental/openssh/V_10_6_P1-saspam-authinfo.patch
+      - name: Build patched sshd for localhost-only testing
+        run: |
+          set -Eeuo pipefail
+          cd _openssh
+          ./configure --with-pam --with-privsep-path=/run/sshd             --prefix=/usr/local/saspam-experimental
+          make -j2 sshd
+          test -x ./sshd
+      - name: Actual PAM account approved publickey/password classification
+        env:
+          SASPAM_TEST_SSHD_BIN: ${{ github.workspace }}/_openssh/sshd
+        run: |
+          echo 'Experimental sshd is limited to a disposable VM localhost port'
+          bash tests/integration/ssh_roundtrip.sh
