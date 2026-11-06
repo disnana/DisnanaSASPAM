@@ -192,7 +192,7 @@ async fn handle_pam(mut stream: UnixStream, state: Arc<State>) {
             }
         },
         PamCommand::Authorize { version, user, service, remote_host, auth_methods } if version == VERSION => {
-            match state.create(user, service, remote_host, auth_methods, vec![AuthMethod::Unknown]).await {
+            match state.create(user, service, remote_host, auth_methods).await {
                 Ok((request, mut rx)) => {
                     let notify_state = state.clone();
                     let notify_request = request.clone();
