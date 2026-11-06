@@ -1,0 +1,39 @@
+name: Published release smoke (manual / test changes)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tests/integration/published_upgrade.sh'
+      - '.github/workflows/published-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  published-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install currently published prerelease
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TAG=$(tr -d '\n' < VERSION)
+          curl --proto '=https' --tlsv1.2 -fsSL \
+            https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh \
+            | sudo bash -s -- --version "$TAG"
+          ! grep -q pam_saspam.so /etc/pam.d/sshd
+      - name: Test partial config, update and rollback from the published archive
+        run: bash tests/integration/published_upgrade.sh
+      - name: Uninstall without touching other PAM stacks
+        run: |
+          sudo saspam uninstall --yes
+          ! test -e /usr/local/lib/security/pam_saspam.so
+          ! grep -q pam_saspam.so /etc/pam.d/sshd
+      - name: Debug transaction state if smoke fails
+        if: failure()
+        run: |
+          sudo journalctl -u saspamd -u saspam-discord --no-pager -n 100 || true
+          sudo find /var/lib/saspam/transactions -maxdepth 2 -name state -exec sh -c 'for x; do echo "$x"; cat "$x"; done' sh {} + || true
