@@ -4,7 +4,7 @@
 
 **Disnana Simple Advanced Security PAM** adds an explicit Discord approval gate **after successful primary SSH authentication** and before granting an SSH session on Ubuntu. The PAM component, approval coordinator, and management CLI are written in Rust; the Discord adapter runs as an unprivileged Python service.
 
-> **v0.1.0-alpha.6 · Developer preview.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
+> **v0.1.0-alpha.7 · Developer preview.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
 
 ## What it does
 
@@ -40,7 +40,7 @@ Supported **test targets:** Ubuntu 22.04 / 24.04 on amd64 or arm64 with systemd 
 For the **currently published alpha**, specify its version explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.6
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.7
 ```
 
 The installer downloads the Release archive and checks the published `SHA256SUMS`. **Installing does not enable the PAM gate.** There is no stable Release yet, so omitting `--version` is not the supported alpha-installation path.
@@ -87,6 +87,10 @@ sudo saspam status
 ```
 
 ## Interactive menu, settings, and tests
+
+**Alpha.7 input fix:** Up/Down keys no longer accidentally close menus on SSH PTYs. ANSI CSI, SS3, and modifier cursor sequences are supported. Enter `10` or `11` followed by Enter/Space to select; entering `12` or `111` in an 11-entry menu displays an out-of-range message **without selecting anything or exiting**. `0`+Enter, Esc, or Q returns; Backspace edits the numeric input. Using arrows cancels typed digits and moves the highlight.
+
+
 
 ```bash
 sudo saspam                   # Arrow keys / Enter / Space / Esc
