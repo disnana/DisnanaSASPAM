@@ -127,13 +127,28 @@ pub fn main_menu() -> Result<(), String> {
             2 => crate::test_login()?,
             3 => crate::settings::notify_menu()?,
             4 => crate::doctor()?,
-            5 => return Err(t(&language,"SSH保護有効化は安全確認後に sudo saspam enable --ack-recovery --ack-tested で実行してください","To enable SSH protection, run sudo saspam enable --ack-recovery --ack-tested after checking your recovery options").into()),
-            6 => crate::disable()?,
+            5 => {
+                let confirmed = crate::ask_yes(t(&language,
+                    "既存SSHセッションとコンソール復旧手段、直近の承認テスト成功を確認しましたか？ (yes/no)",
+                    "Have you confirmed your open SSH session, console recovery and recent approval test? (yes/no)"))?;
+                if confirmed {
+                    crate::enable(&["enable".into(),"--ack-recovery".into(),"--ack-tested".into()])?;
+                }
+            }
+            6 => {
+                if crate::ask_yes(t(&language,
+                    "SSHのSASPAM保護を解除しますか？ (yes/no)",
+                    "Disable SASPAM SSH protection? (yes/no)"))? { crate::disable()?; }
+            },
             7 => crate::security(&["audit".into()])?,
             8 => {
                 let tag=crate::ask(t(&language,"更新先バージョン（例 v0.1.0-alpha.4）","Target version (e.g. v0.1.0-alpha.4)"),"")?;
                 if tag.is_empty() {continue;}
-                crate::update_version(&["--version".into(), tag])?;
+                if crate::ask_yes(t(&language,
+                    "更新前のテストを完了し、復旧用コンソールを確保していますか？ (yes/no)",
+                    "Completed upgrade checks and confirmed console recovery? (yes/no)"))? {
+                    crate::update_version(&["--version".into(), tag])?;
+                }
             }
             _ => return Ok(()),
         }
