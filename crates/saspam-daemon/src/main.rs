@@ -437,6 +437,35 @@ mod tests {
         let outcome = state.finish(&r.request_id, Decision::Deny, "999999999999999999", "111111111111111111", "222222222222222222", &["333333333333333333".to_string()]).await;
         assert_eq!(outcome.unwrap(), Status::Denied);
     }
+    #[tokio::test]
+    async fn ntfy_push_reaches_local_mock_and_obeys_http_status() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let observer = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).await.unwrap();
+            let request = String::from_utf8_lossy(&buf[..n]);
+            assert!(request.starts_with("POST /secure1234567890abcdefghijklmnop HTTP/1.1"));
+            stream.write_all(b"HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n").await.unwrap();
+        });
+        let mut config = Config::default();
+        config.ntfy.enabled = true;
+        config.ntfy.topic = "secure1234567890abcdefghijklmnop".into();
+        config.ntfy.server = format!("http://{address}");
+        let client = reqwest::Client::builder().timeout(Duration::from_secs(3)).build().unwrap();
+        assert!(send_push(&client, &config, "ntfy", "test", "payload").await.is_ok());
+        observer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn disabled_push_provider_does_not_connect() {
+        let config = Config::default();
+        let client = reqwest::Client::new();
+        assert!(send_push(&client, &config, "ntfy", "title", "body").await.is_err());
+        assert!(send_push(&client, &config, "bark", "title", "body").await.is_err());
+    }
+
     #[test]
     fn public_notification_topics_must_be_hard_to_guess() {
         assert!(!valid_topic("ssh"));
