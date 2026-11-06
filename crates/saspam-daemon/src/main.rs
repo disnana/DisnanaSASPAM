@@ -324,7 +324,10 @@ fn listen_secure(path: &Path, mode: u32, group_name: Option<&str>) -> io::Result
     UnixListener::from_std(listener)
 }
 
-#[tokio::main]
+// One Tokio reactor thread is sufficient for local Unix IPC + async push.
+// No busy loops: PAM waits on watch channels and socket readiness.
+// Keep CPU/memory predictable on low-end cloud instances.
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if unsafe { libc::geteuid() } != 0 { return Err("saspamd must run as root".into()); }
     let args: Vec<String> = env::args().collect();
