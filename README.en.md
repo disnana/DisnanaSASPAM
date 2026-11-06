@@ -14,7 +14,7 @@
 - **Japanese or English:** choose a language during setup and change it later. The core CLI, Discord embeds/buttons, and ntfy/Bark notification text follow the setting.
 - **Minimal approval interaction:** Discord button clicks are silently acknowledged; the bot edits the original embed and disables completed buttons, without success follow-up messages.
 - **Optional notifications:** ntfy.sh and Bark **deliver alerts only**. They do not grant SSH access; any VPN-backed web approval UI is not available in this alpha.
-- **Fail closed:** denial, expiration, coordinator failure, or unavailable Discord approval never automatically grants login.
+- **Fail Closed:** denial, expiration, coordinator failure, or unavailable Discord approval never automatically grants login.
 - **Operator controls:** interactive terminal menu, targeted configuration changes, notification tests, opt-in OpenSSH connection limits, and a staged update/rollback mechanism.
 
 ### Architecture at a glance
