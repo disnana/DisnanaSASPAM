@@ -62,9 +62,16 @@ fn random_topic() -> Result<String,String> {
     fs::File::open("/dev/urandom").and_then(|mut file|file.read_exact(&mut bytes)).map_err(|e|e.to_string())?;
     Ok(bytes.iter().map(|b|format!("{b:02x}")).collect())
 }
-fn restart_if_active(service:&str) -> Result<(),String> {
-    if !service_active(service) { return Ok(()); }
-    let status = Command::new("systemctl").args(["restart",service]).status().map_err(|e|e.to_string())?;
+fn service_enabled(service: &str) -> bool {
+    Command::new("systemctl").args(["is-enabled", "--quiet", service])
+        .status().map(|s|s.success()).unwrap_or(false)
+}
+fn restart_if_needed(service:&str) -> Result<(),String> {
+    if !service_active(service) && !service_enabled(service) { return Ok(()); }
+    restart_force(service)
+}
+fn restart_force(service: &str) -> Result<(),String> {
+    let status=Command::new("systemctl").args(["restart",service]).status().map_err(|e|e.to_string())?;
     if status.success() && service_active(service) { Ok(()) }
     else { Err(format!("{service} could not restart; config will be rolled back")) }
 }
@@ -103,20 +110,22 @@ fn commit_configuration(cfg:&toml::Value, env:&BTreeMap<String,String>, ack:bool
         let _=write_private(Path::new(CFG),&old_cfg);
         return Err(e);
     }
+    let old_daemon_active=service_active("saspamd");
+    let old_bot_active=service_active("saspam-discord");
     let apply_result=(||->Result<(),String>{
         let check = Command::new("/usr/local/bin/saspamd").args(["--check-config","--config",CFG])
             .status().map_err(|e|e.to_string())?;
         if !check.success() { return Err("daemon rejected new configuration".into()); }
-        restart_if_active("saspamd")?;
-        restart_if_active("saspam-discord")?;
+        restart_if_needed("saspamd")?;
+        restart_if_needed("saspam-discord")?;
         Ok(())
     })();
     if let Err(e)=apply_result {
         // Restore both secrets/config; restore old processes whenever possible.
         let _=write_private(Path::new(CFG),&old_cfg);
         let _=write_private(Path::new(BOT_ENV),&old_env);
-        let _=restart_if_active("saspamd");
-        let _=restart_if_active("saspam-discord");
+        if old_daemon_active { let _=restart_force("saspamd"); }
+        if old_bot_active { let _=restart_force("saspam-discord"); }
         return Err(format!("{e}; previous configuration restored (check journal)"));
     }
     let _=fs::remove_file(LAST_TEST);
@@ -255,14 +264,17 @@ pub fn config_menu() -> Result<(),String> {
             2 => {
                 args.extend(["ntfy".into(),if ntfy{"off"}else{"on"}.into()]);
                 if !ntfy && get_str(&cfg,"ntfy","topic").is_empty() {
-                    config_change("ntfy",&["topic".into(),"--generate".into()],false)?;
+                    args = vec!["ntfy".into(), "topic".into(), "--generate".into()];
+                    println!("{}",t(&lang,"先に安全なトピックを生成します。次に通知をオンにしてください","A random topic will be generated first. Enable notifications afterwards."));
                 }
             }
             3 => {
                 if !bark && get_str(&cfg,"bark","device_key").is_empty() {
-                    config_change("bark",&["key".into()],false)?;
+                    args.extend(["bark".into(),"key".into()]);
+                    println!("{}",t(&lang,"先にデバイスキーを設定します。次にBark通知をオンにしてください","Configure the Bark device key first, then enable notifications."));
+                } else {
+                    args.extend(["bark".into(),if bark{"off"}else{"on"}.into()]);
                 }
-                args.extend(["bark".into(),if bark{"off"}else{"on"}.into()]);
             }
             4 => {
                 let topic=ask(t(&lang,"ntfy topic（空欄で安全なランダム生成）","ntfy topic (empty generates random)"),"")?;
