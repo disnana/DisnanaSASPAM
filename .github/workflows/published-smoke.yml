@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'tests/integration/published_upgrade.sh'
+      - 'tests/integration/watchdog_recovery.sh'
       - '.github/workflows/published-smoke.yml'
   workflow_dispatch:
 
