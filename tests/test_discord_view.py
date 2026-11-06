@@ -65,7 +65,9 @@ class DiscordViewTests(unittest.TestCase):
         for method, ja, en in [
             ("public_key", "公開鍵認証", "Public key"),
             ("password", "パスワード認証", "Password"),
-            ("fido", "FIDO認証", "FIDO security key"),
+            ("fido", "FIDO対応鍵", "FIDO-backed"),
+            ("fido_ecdsa_sk", "FIDO / ECDSA-SK", "FIDO / ECDSA-SK"),
+            ("fido_ed25519_sk", "FIDO / Ed25519-SK", "FIDO / Ed25519-SK"),
             ("keyboard_interactive", "キーボード対話認証", "Keyboard-interactive"),
         ]:
             with self.subTest(method=method):
