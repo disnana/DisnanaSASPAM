@@ -121,10 +121,14 @@ jobs:
           AUDIT_ASSET="ssh_auth_events-${TAG}.py"
           cp "../tools/ssh_auth_events.py" "$AUDIT_ASSET"
           python3 -m py_compile "$AUDIT_ASSET"
-          sha256sum saspam-*.tar.gz "$AUDIT_ASSET" > SHA256SUMS
+          # Distribute reviewed-source research patch separately, never
+          # inside the Ubuntu installer bundle or automatic update.
+          BRIDGE_ASSET="openssh_10.6p2-saspam-authinfo.patch"
+          cp "../experimental/openssh/V_10_6_P2-saspam-authinfo.patch" "$BRIDGE_ASSET"
+          sha256sum saspam-*.tar.gz "$AUDIT_ASSET" "$BRIDGE_ASSET" > SHA256SUMS
           args=(--title "DisnanaSASPAM $TAG" --generate-notes)
           if [[ "$TAG" == *-* ]]; then args+=(--prerelease); fi
-          gh release create "$TAG" "${args[@]}" SHA256SUMS saspam-*.tar.gz "$AUDIT_ASSET"
+          gh release create "$TAG" "${args[@]}" SHA256SUMS saspam-*.tar.gz "$AUDIT_ASSET" "$BRIDGE_ASSET"
 
   verify-installer:
     if: github.event_name == 'push'
