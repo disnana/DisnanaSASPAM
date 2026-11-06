@@ -1,10 +1,12 @@
 # 復旧手順（最重要）
 
+**日本語** | [English](en/recovery.md) · [ドキュメント一覧](README.md) · [README](../README.md)
+
 PAM設定の誤りはSSHでのログイン不能につながります。SASPAMは通信障害・Discord障害・タイムアウト時に**許可しません**。そのため以下の復旧経路は導入前に確保してください。
 
 ## 導入前
 
-- クラウドのコンソール / serial console / VMハイパーバイザーの管理画面を実際に試す
+- クラウドのコンソール / serial console / VMハイパーバイザーの管理画面を実際に試す（SSH接続を代行するだけのコンソールではないことを確認）
 - 現在のroot権限を持つSSHセッションは維持する
 - 別セッションで `saspam test` 後にゲートを有効化する
 - 既存 `/etc/pam.d/sshd` のバックアップを別途保存する
@@ -64,3 +66,5 @@ sudo saspam status
 ```
 
 初回alpha.3→alpha.4は更新機構の導入が必要なため、保護を解除してから実行する[移行手順](updates.md)を参照してください
+
+[インストール](installation.md) · [更新と復旧](updates.md) · [English](en/recovery.md)

@@ -1,6 +1,8 @@
-# Security model & limitations
+# セキュリティ設計と制限事項
 
-> **Pre-release, unaudited.** 実機でのPAM認証・Ubuntu複数版の統合テストが完了するまでは、本番投入しないでください。
+**日本語** | [English](en/security.md) · [ドキュメント一覧](README.md) · [README](../README.md)
+
+> **未監査のAlpha版**。GitHub Actionsでは複数Ubuntuの実SSH/PAM統合テストに成功していますが、実Discord APIやFIDOハードウェアを含むE2E検証と、独立したセキュリティ監査は未完了です。本番SSHへの導入は推奨しません。
 
 ## 守るもの
 
@@ -21,7 +23,7 @@
 
 - 公開ntfy.shトピックは秘密保管場所ではない。推測しづらいトピックを使用し、IP等のメタデータ漏洩も認識する
 - Bark device keyとDiscord Bot Tokenは機密。`/etc/saspam` はroot専用、GitHubへ公開しない
-- `security apply` はOpenSSHの `MaxAuthTries 4` / `LoginGraceTime 45` / `MaxStartups 10:30:60` を提案する。既存設定との競合は自動で検知して中止
+- `security apply` はOpenSSHの `MaxAuthTries 4` / `LoginGraceTime 45` / `MaxStartups 10:30:60` を提案する。既存設定との競合は検知して中止。**標準の承認待機60秒とLoginGraceTime 45秒の整合性が未検証なので、実機で確認せず適用しない**
 - `PasswordAuthentication` / `PermitRootLogin` は変更しない。Fail2banのインストールも自動では行わない
 - IPv4/IPv6、ホスト・ユーザー別Match条件、cloud-init・既存SSH管理ツールとの競合は手動で確認
 - 安全な配布は署名済みReleaseを目標とする。初期SHA-256は独立した発行者署名ではない
@@ -57,3 +59,5 @@
 - 物理・シリアルコンソールの通常のloginサービス、sudo、suのPAMは変更しない
 
 更新・自動復旧の詳細は[updates.md](updates.md)
+
+[構成](architecture.md) · [復旧](recovery.md) · [更新](updates.md) · [English](en/security.md)
