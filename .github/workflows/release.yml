@@ -98,7 +98,12 @@ jobs:
           fi
           if [[ "$GITHUB_REF_TYPE" == "branch" ]]; then
             [[ "$GITHUB_REF_NAME" == "main" ]] || exit 1
-            [[ "$TAG" == *-* ]] || { echo 'Automatic stable releases forbidden' >&2; exit 1; }
+            if [[ "$TAG" != *-* ]]; then
+              # Stable tags require explicit, version-specific approval in-tree.
+              [[ "$TAG" == "v1.0.0" ]] && grep -Fxq "$TAG" release/stable-approved || {
+                echo 'Stable release requires an explicit versioned approval file' >&2; exit 1;
+              }
+            fi
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             # A previous interrupted publish may have pushed the tag already.

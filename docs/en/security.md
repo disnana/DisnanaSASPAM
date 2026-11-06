@@ -2,7 +2,7 @@
 
 [日本語](../security.md) | **English** · [Documentation index](../README.md) · [English README](../../README.en.md)
 
-> **Unaudited alpha.** Passing automated CI, an SSH integration test, or checksumming a Release archive **does not** establish production security. Plan a separate security review and operator test before stable release.
+> **v1.0.0, not independently audited.** Passing automated CI, an SSH integration test, or checksumming a Release archive **does not** establish production security. Plan a separate security review and operator test before stable release.
 
 ## What SASPAM aims to protect
 

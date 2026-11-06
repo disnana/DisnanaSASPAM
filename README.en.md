@@ -4,7 +4,7 @@
 
 **Disnana Simple Advanced Security PAM** adds an explicit Discord approval gate **after successful primary SSH authentication** and before granting an SSH session on Ubuntu. The PAM component, approval coordinator, and management CLI are written in Rust; the Discord adapter runs as an unprivileged Python service.
 
-> **v1.0.0-beta.2 · Developer preview.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
+> **v1.0.0 · First stable functionality release.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
 
 ## What it does
 
@@ -40,7 +40,7 @@ Supported **test targets:** Ubuntu 22.04 / 24.04 on amd64 or arm64 with systemd 
 For the **currently published alpha**, specify its version explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0-beta.2
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0
 ```
 
 The installer downloads the Release archive and checks the published `SHA256SUMS`. **Installing does not enable the PAM gate.** There is no stable Release yet, so omitting `--version` is not the supported alpha-installation path.
@@ -116,15 +116,21 @@ Changes that restart services while SASPAM's SSH hook is enabled can temporarily
 
 Bark and ntfy providers are external services; consider privacy implications before sending source-IP or hostname metadata. Never put a Bark device key or Discord bot token on the command line or in Git.
 
-### Authentication methods in approval requests (v1.0.0-beta.2)
+### Authentication method display (v1.0.0)
 
-**SASPAM does not patch or replace Ubuntu's OpenSSH**. Preserving distribution security updates and recovery is a release requirement
+**Hidden by default.** Pending and completed Discord approval cards omit the authentication-method field entirely, including Unknown, on both new and upgraded installations. The PAM/Discord authorization gate is unchanged
 
-On tested stock Ubuntu 22.04/24.04 systems, `SSH_AUTH_INFO_0` is empty at the PAM account stage. The pending Discord approval card therefore continues to report **Unknown (unavailable)** rather than guessing whether a password, public key, or FIDO-backed key succeeded
+Only operators who separately maintain an experimental patched OpenSSH should deliberately opt in to method display:
 
-The historical Python `ssh.py` / `ssh_v2.py` approach is preserved in the optional [read-only `ssh_auth_events.py` audit tool](docs/ssh-auth-audit.md). After PAM approval, it can observe `Accepted password` / `Accepted publickey` and emit a **separate Discord audit notification** that includes the authenticated method. It adds no journal reads to the regular SASPAM approval path; an explicitly started monitor incurs its own low-volume read overhead
+```bash
+sudo saspam config show
+sudo saspam config set auth-methods experimental --ack-ssh-risk --ack-recovery
+sudo saspam config set auth-methods off
+```
 
-The research OpenSSH patch included as a separate beta.1 Release attachment is **not shipped in beta.2**. Safely updating the original Discord card for the same exact SSH connection after approval is still unimplemented. See [technical and stable-release limits](docs/auth-info-bridge.md)
+When the SSH PAM gate is active, add `--ack-interruption` because the Discord Bot may need a restart. The interactive settings menu also requires explicit risk and out-of-band recovery confirmations
+
+**This opt-in does not patch, build or install OpenSSH.** On stock Ubuntu, experimental mode still displays Unknown: the PAM account stage does not reliably receive the verified method. Custom patched OpenSSH is unsupported for production, carries missed-security-update and lockout risks, and must be operated separately. See [experimental display and recovery](docs/auth-method-display.md). A separate [postapproval log audit tool](docs/ssh-auth-audit.md) remains optional
 
 ### Optional OpenSSH authentication log audit (alpha.6)
 

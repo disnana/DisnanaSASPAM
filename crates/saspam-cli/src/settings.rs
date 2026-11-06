@@ -9,6 +9,12 @@ use super::{interactive::{choose, initial_language, t}, ask, root, service_activ
 
 const CFG: &str = "/etc/saspam/config.toml";
 const BOT_ENV: &str = "/etc/saspam/discord.env";
+const AUTH_MODE_KEY: &str = "SASPAM_AUTH_METHOD_DISPLAY";
+
+pub fn auth_method_mode() -> String {
+    bot_env().ok().and_then(|env| env.get(AUTH_MODE_KEY).cloned())
+        .filter(|v| v == "experimental").unwrap_or_else(|| "off".into())
+}
 
 pub fn current_language() -> String {
     let text = fs::read_to_string(CFG).unwrap_or_default();
@@ -153,6 +159,19 @@ fn config_change(name:&str, values:&[String], ack:bool) -> Result<(),String> {
             if val=="everyone" && !ack { return Err("@everyone requires --ack-interruption to confirm the broad notification audience".into()); }
             env.insert("DISCORD_MENTION_MODE".into(),val.clone());
         }
+        "auth-methods" => {
+            let val=values.first().ok_or("usage: saspam config set auth-methods off|experimental")?;
+            if !["off","experimental"].contains(&val.as_str()) {
+                return Err("auth method display must be off or experimental".into());
+            }
+            if val == "experimental" {
+                if !values.iter().any(|v|v=="--ack-ssh-risk") || !values.iter().any(|v|v=="--ack-recovery") {
+                    return Err("Experimental display requires --ack-ssh-risk --ack-recovery; it does NOT patch OpenSSH. Verify an out-of-band recovery console".into());
+                }
+                println!("WARNING: only displays available verified metadata from separately patched OpenSSH. Stock Ubuntu stays Unknown; no SSH patch is installed.");
+            }
+            env.insert(AUTH_MODE_KEY.into(),val.clone());
+        }
         "ntfy" | "bark" => {
             let op=values.first().ok_or("usage: saspam config set ntfy|bark on|off|topic|key")?.as_str();
             match op {
@@ -194,7 +213,7 @@ fn config_change(name:&str, values:&[String], ack:bool) -> Result<(),String> {
             set_value(&mut cfg,"discord","allowed_role_ids",toml::Value::Array(array))?;
             env.insert("DISCORD_APPROVAL_ROLE_IDS".into(),ids.join(","));
         }
-        _ => return Err("unknown setting. Try language, mentions, ntfy, bark, timeout, server, roles".into()),
+        _ => return Err("unknown setting. Try language, mentions, auth-methods, ntfy, bark, timeout, server, roles".into()),
     }
     commit_configuration(&cfg,&env,ack)
 }
@@ -209,6 +228,7 @@ pub fn config_command(args:&[String]) -> Result<(),String> {
             println!("Server: {}",get_str(&cfg,"general","server_name"));
             println!("Approval timeout: {} seconds",cfg.get("general").and_then(|v|v.get("timeout_seconds")).and_then(|v|v.as_integer()).unwrap_or(60));
             println!("Discord mention: {}",env.get("DISCORD_MENTION_MODE").map(String::as_str).unwrap_or("none"));
+            println!("Auth method display: {}",auth_method_mode());
             println!("Allowed roles: {}",env.get("DISCORD_APPROVAL_ROLE_IDS").map(String::as_str).unwrap_or("(not configured)"));
             println!("ntfy enabled: {} (topic: {})",get_bool(&cfg,"ntfy","enabled"),get_str(&cfg,"ntfy","topic"));
             println!("Bark enabled: {} (key: {})",get_bool(&cfg,"bark","enabled"),if get_str(&cfg,"bark","device_key").is_empty() { "not configured" } else { "******" });
@@ -219,7 +239,7 @@ pub fn config_command(args:&[String]) -> Result<(),String> {
             let parts=args[3..].iter().filter(|s|s.as_str()!="--ack-interruption").cloned().collect::<Vec<_>>();
             config_change(&args[1],&[vec![args[2].clone()],parts].concat(),ack)
         }
-        _ => Err("usage: saspam config [show|set SETTING VALUE [--ack-interruption]]".into()),
+        _ => Err("usage: saspam config [show|set SETTING VALUE [--ack-interruption]] (experimental auth-methods also requires --ack-ssh-risk --ack-recovery)".into()),
     }
 }
 pub fn config_menu() -> Result<(),String> {
@@ -229,6 +249,7 @@ pub fn config_menu() -> Result<(),String> {
         let cfg=config_file()?;
         let lang=current_language();
         let mention=bot_env()?.get("DISCORD_MENTION_MODE").cloned().unwrap_or_else(||"none".into());
+        let auth_mode=auth_method_mode();
         let ntfy=get_bool(&cfg,"ntfy","enabled");
         let bark=get_bool(&cfg,"bark","enabled");
         let timeout=cfg.get("general").and_then(|g|g.get("timeout_seconds")).and_then(|v|v.as_integer()).unwrap_or(60);
@@ -243,6 +264,7 @@ pub fn config_menu() -> Result<(),String> {
             t(&lang,"承認ロールIDの変更","Change approval role IDs").to_owned(),
             t(&lang,"サーバー名の変更","Change server name").to_owned(),
             t(&lang,"設定の詳細表示","Show current settings").to_owned(),
+            format!("{}: {}",t(&lang,"認証方式の表示（危険な実験）","Auth method display (experimental risk)"),auth_mode),
             t(&lang,"戻る","Back").to_owned(),
         ];
         let Some(choice)=choose(t(&lang,"設定メニュー（項目ごとに保存）","Settings (save each change)"),&entries,selected,&lang)? else{return Ok(());};
@@ -294,6 +316,25 @@ pub fn config_menu() -> Result<(),String> {
                 args.push(ask(t(&lang,"サーバー名","Server name"),get_str(&cfg,"general","server_name"))?);
             }
             9 => { config_command(&["show".into()])?; continue; }
+            10 => {
+                let options=vec![t(&lang,"オフ（標準・推奨）","Off (default, recommended)").into(),
+                                 t(&lang,"実験（改造OpenSSH環境のみ）","Experimental (patched OpenSSH only)").into()];
+                let Some(mode)=choose(t(&lang,"認証方式の表示","Authentication-method display"),
+                                      &options,if auth_mode=="experimental"{1}else{0},&lang)? else { continue; };
+                if mode==1 {
+                    println!("{}",t(&lang,
+                        "警告: Ubuntu標準OpenSSHでは取得不可。独自SSHには脆弱性・更新不能・接続不能のリスク。この設定はOpenSSHを改造しません",
+                        "WARNING: custom sshd risks missing security updates and lockout. This setting does NOT patch OpenSSH"));
+                    if !super::ask_yes(t(&lang,"実験モードのリスクを理解しましたか？ (yes/no)",
+                                          "Accept experimental display risk? (yes/no)"))? {continue;}
+                    if !super::ask_yes(t(&lang,"SSHに依存しない復旧コンソールを確認しましたか？ (yes/no)",
+                                          "Have you verified independent recovery access? (yes/no)"))? {continue;}
+                    args.extend(["auth-methods".into(),"experimental".into(),"--ack-ssh-risk".into(),"--ack-recovery".into()]);
+                } else {
+                    args.extend(["auth-methods".into(),"off".into()]);
+                }
+            }
+            11 => return Ok(()),
             _ => return Ok(()),
         }
         // Changing settings while SSH PAM is active can reject pending sessions

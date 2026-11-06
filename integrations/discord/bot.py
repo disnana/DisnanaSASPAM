@@ -72,7 +72,7 @@ def translate(language: str, japanese: str, english: str) -> str:
     return english if language == "en" else japanese
 
 
-def embed(req: dict[str, Any], language: str = "ja") -> discord.Embed:
+def embed(req: dict[str, Any], language: str = "ja", auth_mode: str = "off") -> discord.Embed:
     """Compact Japanese/English status card without leaking token or key data."""
     status = req.get("status", "pending")
     colors = {"pending": 0xE3A008, "approved": 0x2ECC71, "denied": 0xE74C3C, "expired": 0x778899}
@@ -108,28 +108,31 @@ def embed(req: dict[str, Any], language: str = "ja") -> discord.Embed:
                     value=f"<@{actor}> — {verb}", inline=False)
     e.add_field(name=translate(language, "🖥️ 接続先サーバー", "🖥️ Server"), value=hostname, inline=True)
     e.add_field(name=translate(language, "🌐 接続元IP / ホスト", "🌐 Source IP / Host"), value=remote, inline=True)
-    # Show only OpenSSH's verified auth method categories, never raw key data.
-    auth_labels = {
-        "public_key": ("公開鍵認証", "Public key"),
-        "password": ("パスワード認証", "Password"),
-        "fido": ("公開鍵認証（FIDO対応鍵）", "Public key (FIDO-backed)"),
-        "fido_ecdsa_sk": ("公開鍵認証（FIDO / ECDSA-SK）", "Public key (FIDO / ECDSA-SK)"),
-        "fido_ed25519_sk": ("公開鍵認証（FIDO / Ed25519-SK）", "Public key (FIDO / Ed25519-SK)"),
-        "keyboard_interactive": ("キーボード対話認証", "Keyboard-interactive"),
-        "hostbased": ("ホストベース認証", "Host-based"),
-        "unknown": ("不明（取得不可）", "Unknown (unavailable)"),
-    }
-    auth_methods = req.get("auth_methods") or ["unknown"]
-    if not isinstance(auth_methods, list) or len(auth_methods) > 8:
-        auth_methods = ["unknown"]
-    labels = []
-    for method in auth_methods:
-        ja, en = auth_labels.get(method, auth_labels["unknown"]) if isinstance(method, str) else auth_labels["unknown"]
-        label = translate(language, ja, en)
-        # Preserve ordered multi-factor sequences, including publickey,publickey.
-        labels.append(label)
-    e.add_field(name=translate(language, "🔑 SSH一次認証方式", "🔑 SSH authentication method"),
-                value=" + ".join(labels), inline=False)
+    # Off by default, including on existing installations without the env setting.
+    # This only changes presentation, never SSH approval decisions.
+    if auth_mode == "experimental":
+        # Show only OpenSSH's verified auth method categories, never raw key data.
+        auth_labels = {
+            "public_key": ("公開鍵認証", "Public key"),
+            "password": ("パスワード認証", "Password"),
+            "fido": ("公開鍵認証（FIDO対応鍵）", "Public key (FIDO-backed)"),
+            "fido_ecdsa_sk": ("公開鍵認証（FIDO / ECDSA-SK）", "Public key (FIDO / ECDSA-SK)"),
+            "fido_ed25519_sk": ("公開鍵認証（FIDO / Ed25519-SK）", "Public key (FIDO / Ed25519-SK)"),
+            "keyboard_interactive": ("キーボード対話認証", "Keyboard-interactive"),
+            "hostbased": ("ホストベース認証", "Host-based"),
+            "unknown": ("不明（取得不可）", "Unknown (unavailable)"),
+        }
+        auth_methods = req.get("auth_methods") or ["unknown"]
+        if not isinstance(auth_methods, list) or len(auth_methods) > 8:
+            auth_methods = ["unknown"]
+        labels = []
+        for method in auth_methods:
+            ja, en = auth_labels.get(method, auth_labels["unknown"]) if isinstance(method, str) else auth_labels["unknown"]
+            label = translate(language, ja, en)
+            # Preserve ordered multi-factor sequences, including publickey,publickey.
+            labels.append(label)
+        e.add_field(name=translate(language, "🔑 SSH一次認証方式", "🔑 SSH authentication method"),
+                    value=" + ".join(labels), inline=False)
     created = int(req.get("created_unix", 0))
     expires = int(req.get("expires_unix", 0))
     if created > 0:
@@ -236,7 +239,7 @@ class RequestView(discord.ui.View):
                     if updated.get("status") != "pending":
                         for item in self.children:
                             item.disabled = True
-                    await interaction.message.edit(embed=embed(updated, self.language), view=self)
+                    await interaction.message.edit(embed=embed(updated, self.language, getattr(interaction.client, "auth_mode", "off")), view=self)
                 else:
                     LOG.warning("Unable to load finalized state for request %s", self.request_id)
             except (OSError, ValueError, RuntimeError, discord.DiscordException) as exc:
@@ -246,7 +249,7 @@ class RequestView(discord.ui.View):
         return action
 
 class SaspamBot(discord.Client):
-    def __init__(self, guild_id: int, channel_id: int, allowed_roles: frozenset[int], mention_mode: str = "none", language: str = "ja"):
+    def __init__(self, guild_id: int, channel_id: int, allowed_roles: frozenset[int], mention_mode: str = "none", language: str = "ja", auth_mode: str = "off"):
         intents = discord.Intents.default()
         intents.message_content = False  # No privileged intent or message reading required
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
@@ -254,6 +257,7 @@ class SaspamBot(discord.Client):
         self.channel_id = channel_id
         self.allowed_roles = allowed_roles
         self.language = language
+        self.auth_mode = auth_mode
         self.mention_text, self.notification_mentions = notification_mention(mention_mode, allowed_roles)
         self.messages: dict[str, int] = load_state()
         self.poller: asyncio.Task | None = None
@@ -289,7 +293,7 @@ class SaspamBot(discord.Client):
                     if req_id not in self.messages:
                         message = await ch.send(
                             content=self.mention_text,
-                            embed=embed(req, self.language),
+                            embed=embed(req, self.language, self.auth_mode),
                             view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, language=self.language),
                             allowed_mentions=self.notification_mentions,
                         )
@@ -304,7 +308,7 @@ class SaspamBot(discord.Client):
                         if row["status"] == "pending":
                             continue
                         message = await ch.fetch_message(message_id)
-                        await message.edit(embed=embed(row, self.language), view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, done=True, language=self.language))
+                        await message.edit(embed=embed(row, self.language, self.auth_mode), view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, done=True, language=self.language))
                     del self.messages[req_id]
                     save_state(self.messages)
             except asyncio.CancelledError:
@@ -324,6 +328,9 @@ def main() -> None:
         # Existing installs without a mention setting remain quiet by default.
         mention_mode = os.getenv("DISCORD_MENTION_MODE", "none")
         language = os.getenv("DISCORD_LANGUAGE", "ja")
+        auth_mode = os.getenv("SASPAM_AUTH_METHOD_DISPLAY", "off")
+        if auth_mode not in ("off", "experimental"):
+            raise ValueError("SASPAM_AUTH_METHOD_DISPLAY must be off or experimental")
         if language not in ("ja", "en"):
             raise ValueError("DISCORD_LANGUAGE must be ja or en")
         notification_mention(mention_mode, allowed_roles)
@@ -331,7 +338,7 @@ def main() -> None:
         raise SystemExit(str(exc)) from exc
     if not token or not guild_id or not channel_id or guild_id in allowed_roles:
         raise SystemExit("DISCORD_TOKEN, DISCORD_GUILD_ID, DISCORD_CHANNEL_ID and non-everyone approval roles are required")
-    SaspamBot(guild_id, channel_id, allowed_roles, mention_mode=mention_mode, language=language).run(token, log_handler=None)
+    SaspamBot(guild_id, channel_id, allowed_roles, mention_mode=mention_mode, language=language, auth_mode=auth_mode).run(token, log_handler=None)
 
 
 if __name__ == "__main__":

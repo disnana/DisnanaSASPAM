@@ -3,6 +3,8 @@
 server_name = "example-server"
 timeout_seconds = 60
 language = "ja" # or "en", also used for Discord and push notifications
+# Display hidden by default. To show verified methods in patched OpenSSH lab:
+# sudo saspam config set auth-methods experimental --ack-ssh-risk --ack-recovery
 
 [discord]
 enabled = true

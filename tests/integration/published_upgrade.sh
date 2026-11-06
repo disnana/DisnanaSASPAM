@@ -40,6 +40,18 @@ sudo grep -qx 'DISCORD_LANGUAGE=en' /etc/saspam/discord.env
 sudo saspam config set language ja
 sudo saspam config set ntfy topic --generate
 sudo saspam config show | grep -q 'ntfy enabled: false (topic: '
+# Authentication method display is off on legacy installations and new setups.
+sudo saspam config show | grep -Fq 'Auth method display: off'
+if sudo saspam config set auth-methods experimental >/tmp/saspam-auth-risk-test.log 2>&1; then
+  echo 'Experimental authentication method display enabled without risk acknowledgements' >&2; exit 1
+fi
+grep -Fq -- '--ack-ssh-risk --ack-recovery' /tmp/saspam-auth-risk-test.log
+sudo saspam config set auth-methods experimental --ack-ssh-risk --ack-recovery
+sudo saspam config show | grep -Fq 'Auth method display: experimental'
+sudo grep -Fxq 'SASPAM_AUTH_METHOD_DISPLAY=experimental' /etc/saspam/discord.env
+sudo saspam config set auth-methods off
+sudo saspam config show | grep -Fq 'Auth method display: off'
+sudo grep -Fxq 'SASPAM_AUTH_METHOD_DISPLAY=off' /etc/saspam/discord.env
 # Disabled notification provider must never send a test push.
 if sudo saspam notify test ntfy >/dev/null 2>&1; then
   echo 'Disabled ntfy notification unexpectedly succeeded' >&2; exit 1;
