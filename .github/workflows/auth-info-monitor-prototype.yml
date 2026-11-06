@@ -42,11 +42,16 @@ jobs:
           autoreconf -fi
           ./configure --with-pam --with-privsep-path=/run/sshd --prefix=/usr/local/saspam-experimental --libexecdir="$PWD"
           # OpenSSH 10.x launches the separate sshd-auth and sshd-session executables.
-          make -j2 sshd sshd-auth sshd-session
+          make -j2 sshd sshd-auth sshd-session ssh ssh-keygen ssh-sk-helper regress/misc/sk-dummy/sk-dummy.so
           test -x ./sshd && test -x ./sshd-auth && test -x ./sshd-session
+          test -x ./ssh && test -x ./ssh-keygen && test -f ./regress/misc/sk-dummy/sk-dummy.so
       - name: Actual PAM account approved publickey/password classification
         env:
           SASPAM_TEST_SSHD_BIN: ${{ github.workspace }}/_openssh/sshd
+          SASPAM_TEST_DUMMY_FIDO: '1'
+          SASPAM_TEST_SK_PROVIDER: ${{ github.workspace }}/_openssh/regress/misc/sk-dummy/sk-dummy.so
+          SASPAM_TEST_KEYGEN: ${{ github.workspace }}/_openssh/ssh-keygen
+          SASPAM_TEST_SSH: ${{ github.workspace }}/_openssh/ssh
         run: |
           echo 'Experimental sshd is limited to a disposable VM localhost port'
           bash tests/integration/ssh_roundtrip.sh
