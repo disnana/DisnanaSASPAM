@@ -4,7 +4,7 @@
 
 **Disnana Simple Advanced Security PAM** — SSHの公開鍵・FIDO・パスワードによる**一次認証成功後**に、Discordで追加承認を求めるUbuntu向けPAMゲート
 
-> **v0.1.0-alpha.4 / Developer Preview** — 独立したセキュリティ監査は未完了で、**本番SSHサーバーでの運用は推奨しません**。GitHub Actionsでは実際のSSH/PAM承認フローを検証済みですが、FIDO実機・Discord API全体のE2E・PAM有効状態での更新障害復旧には追加検証が必要です。必ず既存の管理用SSHセッションと、SSHに依存しない復旧用コンソールを確保してください
+> **v0.1.0-alpha.5 / Developer Preview** — 独立したセキュリティ監査は未完了で、**本番SSHサーバーでの運用は推奨しません**。GitHub Actionsでは実際のSSH/PAM承認フローを検証済みですが、FIDO実機・Discord API全体のE2E・PAM有効状態での更新障害復旧には追加検証が必要です。必ず既存の管理用SSHセッションと、SSHに依存しない復旧用コンソールを確保してください
 
 ## 主な機能
 
@@ -40,7 +40,7 @@ Discord Botは通常のDiscord APIへ接続するため、Tailscale・NetBirdは
 **公開中のAlpha版はバージョンを明示して導入してください**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.4
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.5
 ```
 
 GitHub Releaseのアーカイブと`SHA256SUMS`を取得・照合します。**インストールだけではSSHのPAM保護は有効化されません**。正式安定版のReleaseはまだないため、バージョン省略で安定版を取得する運用はできません
@@ -112,11 +112,27 @@ Bark・ntfyは**通知専用**です。公開プッシュサービスへは接�
 
 SSH保護中の設定変更はサービスの再起動で一時的に承認要求が拒否されることがあります。CLIは変更前の確認を求め、検証・再起動に失敗した場合は旧設定への復旧を試みます。無停止変更の保証ではありません
 
+### 認証方式の表示（alpha.5）
+
+Discordの承認Embedには、接続元・ユーザー名に加えて **SSHの一次認証方式** を表示します。OpenSSHのPAM環境 `SSH_AUTH_INFO_0` を読み、公開鍵、パスワード、FIDO鍵、keyboard-interactive、複数方式を区別します。取得できなければ「不明（取得不可）」と表示し、推測はしません
+
+SSH公開鍵の内容・指紋・パスワードは通知に含めません。パーサーの単体テストを追加済み。ただしUbuntu 22.04/24.04の実SSH/PAMテストではOpenSSHからこの情報が空で渡されるため、現状は「不明」と表示されます。確実な認証方式取得とFIDO実機検証は未完了です
+
+### バージョン不要の更新（alpha.5）
+
+```bash
+sudo saspam update            # 最近のRelease一覧から選択
+sudo saspam update --list     # 利用可能な版と現在との差を表示
+sudo saspam update --latest   # 最新の配布版を自動選択
+```
+
+対話メニューの「更新・ダウングレード」からも選択できます。古いバージョンを選んだ場合は確認が必要です。現在の版を再配置するには `--allow-reinstall` を使います。各Releaseのチェックサムとアーキテクチャ互換性を確認したうえで、従来のFail Closed更新機構に処理を渡します
+
 ## 更新・ダウングレード・自動ロールバック
 
 ```bash
-sudo saspam update --version v0.1.0-alpha.4 --dry-run
-sudo saspam update --version v0.1.0-alpha.4 --allow-reinstall
+sudo saspam update --version v0.1.0-alpha.5 --dry-run
+sudo saspam update --version v0.1.0-alpha.5 --allow-reinstall
 sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
 sudo saspam update --rollback
 ```

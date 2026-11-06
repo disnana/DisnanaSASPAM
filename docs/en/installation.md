@@ -130,3 +130,7 @@ The selected provider must be enabled. These tests verify delivery from the daem
 | Timed-out SSH login | Default behavior is Fail Closed; see [recovery](recovery.md) |
 
 Read [updates and rollback](updates.md) before upgrading a host whose SSH PAM gate is already active.
+
+## alpha.5: Primary SSH authentication method
+
+The Discord approval Embed shows verified method categories (public key, password, FIDO, keyboard-interactive or unknown) from OpenSSH's `SSH_AUTH_INFO_0` PAM environment. The module never forwards raw public keys, fingerprints or passwords. In live Ubuntu 22.04/24.04 SSH/PAM tests this information is empty, so the UI reports Unknown. Reliable method detection and real-device FIDO validation remain unverified

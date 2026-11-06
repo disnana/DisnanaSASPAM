@@ -1,7 +1,7 @@
 //! Root-owned, fail-closed, local-only approval coordinator.
 //! PAM IPC is root-only; the Bot IPC is accessible only to a dedicated group.
 //! There is no publicly reachable approval API in v0.1.x.
-use saspam_protocol::{BotCommand, Decision, PamCommand, PendingRequest, Reply, Status, BOT_SOCKET, PAM_SOCKET, VERSION};
+use saspam_protocol::{AuthMethod, BotCommand, Decision, PamCommand, PendingRequest, Reply, Status, BOT_SOCKET, PAM_SOCKET, VERSION};
 use serde::Deserialize;
 use std::{collections::HashMap, env, ffi::CString, fs, io, os::{fd::AsRawFd, unix::{fs::{FileTypeExt, PermissionsExt}, net::UnixListener as StdUnixListener}}, path::Path, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{UnixListener, UnixStream}, sync::{watch, Mutex}, time::{self, Instant}};
@@ -71,10 +71,11 @@ fn log_event(event: &str, r: &PendingRequest) {
         r.actor_id.as_deref().unwrap_or("-"));
 }
 impl State {
-    async fn create(&self, user: String, service: String, remote_host: String) -> Result<(PendingRequest, watch::Receiver<Status>), String> {
+    async fn create(&self, user: String, service: String, remote_host: String, auth_methods: Vec<AuthMethod>) -> Result<(PendingRequest, watch::Receiver<Status>), String> {
         if service != "sshd" || user.is_empty() || user.len() > 128 || remote_host.len() > 255 || user.chars().any(|c| c.is_control()) || remote_host.chars().any(|c| c.is_control()) {
             return Err("invalid PAM request".into());
         }
+        if auth_methods.len() > 8 { return Err("too many authentication methods".into()); }
         let mut guard = self.entries.lock().await;
         let now = unix_now();
         guard.retain(|_, v| v.request.expires_unix.saturating_add(RETENTION_SECS) > now);
@@ -83,7 +84,7 @@ impl State {
         }
         let (tx, rx) = watch::channel(Status::Pending);
         let request = PendingRequest {
-            request_id: uuid::Uuid::new_v4().to_string(), user, service, remote_host,
+            request_id: uuid::Uuid::new_v4().to_string(), user, service, remote_host, auth_methods,
             server_name: self.config.general.server_name.clone(), created_unix: now,
             expires_unix: now + self.config.general.timeout_seconds, status: Status::Pending, actor_id: None,
         };
@@ -190,8 +191,8 @@ async fn handle_pam(mut stream: UnixStream, state: Arc<State>) {
                 _ => Reply::denied("unknown notification provider"),
             }
         },
-        PamCommand::Authorize { version, user, service, remote_host } if version == VERSION => {
-            match state.create(user, service, remote_host).await {
+        PamCommand::Authorize { version, user, service, remote_host, auth_methods } if version == VERSION => {
+            match state.create(user, service, remote_host, auth_methods).await {
                 Ok((request, mut rx)) => {
                     let notify_state = state.clone();
                     let notify_request = request.clone();
@@ -391,7 +392,7 @@ mod tests {
     #[tokio::test]
     async fn approval_is_one_time_and_allowlisted() {
         let state=state();
-        let (r,rx)=state.create("alice".into(), "sshd".into(), "192.0.2.1".into()).await.unwrap();
+        let (r,rx)=state.create("alice".into(), "sshd".into(), "192.0.2.1".into(), vec![AuthMethod::Unknown]).await.unwrap();
         let guild = "111111111111111111";
         let channel = "222222222222222222";
         let member_role = vec!["444444444444444444".to_string()];
@@ -408,9 +409,9 @@ mod tests {
     async fn max_concurrent_requests_are_bounded() {
         let state = state();
         for index in 0..MAX_PENDING {
-            state.create(format!("user{index}"), "sshd".into(), "192.0.2.1".into()).await.unwrap();
+            state.create(format!("user{index}"), "sshd".into(), "192.0.2.1".into(), vec![AuthMethod::Unknown]).await.unwrap();
         }
-        assert!(state.create("overflow".into(), "sshd".into(), "192.0.2.2".into()).await.is_err());
+        assert!(state.create("overflow".into(), "sshd".into(), "192.0.2.2".into(), vec![AuthMethod::Unknown]).await.is_err());
     }
     #[test]
     fn unsupported_language_is_not_permitted() {
@@ -422,18 +423,18 @@ mod tests {
     #[tokio::test]
     async fn only_ssh_is_authorizable() {
         let state=state();
-        assert!(state.create("root".into(), "login".into(), "local".into()).await.is_err());
+        assert!(state.create("root".into(), "login".into(), "local".into(), vec![AuthMethod::Unknown]).await.is_err());
     }
     #[tokio::test]
     async fn control_characters_cannot_spoof_audit_logs() {
         let state=state();
-        assert!(state.create("root\nadmin".into(), "sshd".into(), "host".into()).await.is_err());
-        assert!(state.create("root".into(), "sshd".into(), "host\rspoof".into()).await.is_err());
+        assert!(state.create("root\nadmin".into(), "sshd".into(), "host".into(), vec![AuthMethod::Unknown]).await.is_err());
+        assert!(state.create("root".into(), "sshd".into(), "host\rspoof".into(), vec![AuthMethod::Unknown]).await.is_err());
     }
     #[tokio::test]
     async fn another_allowed_role_can_deny() {
         let state = state();
-        let (r, _) = state.create("alice".into(), "sshd".into(), "192.0.2.1".into()).await.unwrap();
+        let (r, _) = state.create("alice".into(), "sshd".into(), "192.0.2.1".into(), vec![AuthMethod::Unknown]).await.unwrap();
         let outcome = state.finish(&r.request_id, Decision::Deny, "999999999999999999", "111111111111111111", "222222222222222222", &["333333333333333333".to_string()]).await;
         assert_eq!(outcome.unwrap(), Status::Denied);
     }

@@ -56,6 +56,29 @@ class DiscordViewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             notification_mention("bad-mode", ROLES)
 
+    def test_primary_ssh_auth_methods_are_localized(self):
+        base = {
+            "request_id": "00000000-0000-0000-0000-000000000001",
+            "user": "ubuntu", "remote_host": "192.0.2.3", "server_name": "host",
+            "status": "pending", "created_unix": 1793891000, "expires_unix": 1793891060,
+        }
+        for method, ja, en in [
+            ("public_key", "公開鍵認証", "Public key"),
+            ("password", "パスワード認証", "Password"),
+            ("fido", "FIDO認証", "FIDO security key"),
+            ("keyboard_interactive", "キーボード対話認証", "Keyboard-interactive"),
+        ]:
+            with self.subTest(method=method):
+                base["auth_methods"] = [method]
+                self.assertTrue(any(ja in field.value for field in embed(base, "ja").fields))
+                self.assertTrue(any(en in field.value for field in embed(base, "en").fields))
+        base["auth_methods"] = ["public_key", "password"]
+        self.assertTrue(any("公開鍵認証 + パスワード認証" in field.value for field in embed(base, "ja").fields))
+        base.pop("auth_methods")
+        self.assertTrue(any("不明（取得不可）" in field.value for field in embed(base, "ja").fields))
+        base["auth_methods"] = ["unknown"]
+        self.assertTrue(any("Unknown" in field.value for field in embed(base, "en").fields))
+
     def test_japanese_embed_pending_and_completed_states(self):
         req = {
             "request_id": "00000000-0000-0000-0000-000000000001",

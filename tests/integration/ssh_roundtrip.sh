@@ -123,14 +123,14 @@ reply=call({"action":"list"})
 assert reply["ok"] and not reply["requests"], "Failed primary auth incorrectly created a pending request"
 PY
 
-echo '== Public key needs approval =='
-sudo python3 tests/integration/decision_bot.py approve --timeout 15 &
+echo '== Public key needs approval and must report public_key =='
+sudo python3 tests/integration/decision_bot.py approve --valid-auth public_key,unknown --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${SSH_BASE[@]}" 'printf APPROVED')
 wait "$BOT_PID"
 [[ "$OUT" == "APPROVED" ]] || { echo "Unexpected key SSH output: $OUT" >&2; exit 1; }
-echo '== Password needs approval =='
-sudo python3 tests/integration/decision_bot.py approve --timeout 15 &
+echo '== Password needs approval and must report password =='
+sudo python3 tests/integration/decision_bot.py approve --valid-auth password,unknown --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${PW_BASE[@]}" 'printf APPROVED-PASSWORD')
 wait "$BOT_PID"

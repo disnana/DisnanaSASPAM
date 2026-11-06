@@ -4,7 +4,7 @@
 
 **Disnana Simple Advanced Security PAM** adds an explicit Discord approval gate **after successful primary SSH authentication** and before granting an SSH session on Ubuntu. The PAM component, approval coordinator, and management CLI are written in Rust; the Discord adapter runs as an unprivileged Python service.
 
-> **v0.1.0-alpha.4 · Developer preview.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
+> **v0.1.0-alpha.5 · Developer preview.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
 
 ## What it does
 
@@ -40,7 +40,7 @@ Supported **test targets:** Ubuntu 22.04 / 24.04 on amd64 or arm64 with systemd 
 For the **currently published alpha**, specify its version explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.4
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.5
 ```
 
 The installer downloads the Release archive and checks the published `SHA256SUMS`. **Installing does not enable the PAM gate.** There is no stable Release yet, so omitting `--version` is not the supported alpha-installation path.
@@ -112,6 +112,22 @@ Changes that restart services while SASPAM's SSH hook is enabled can temporarily
 
 Bark and ntfy providers are external services; consider privacy implications before sending source-IP or hostname metadata. Never put a Bark device key or Discord bot token on the command line or in Git.
 
+### Authentication methods in approval requests (alpha.5)
+
+Discord embeds now show the **primary SSH authentication method** based on OpenSSH's PAM `SSH_AUTH_INFO_0` data: Public key, Password, FIDO security key, Keyboard-interactive, or multiple completed methods. If unavailable, the display explicitly says **Unknown** rather than guessing. SSH key material, fingerprints and passwords are never sent to Discord
+
+The parser has unit tests, but live SSH/PAM CI on Ubuntu 22.04/24.04 exposed an empty PAM authentication-info string, so these hosts currently show **Unknown**. Reliable method reporting and physical FIDO verification remain unresolved
+
+### Discover and select Releases without a version number
+
+```bash
+sudo saspam update             # Choose from recent published Releases
+sudo saspam update --list      # View available versions and installed status
+sudo saspam update --latest    # Automatically select the newest compatible Release
+```
+
+The interactive menu also offers the Release picker. Older versions require explicit downgrade confirmation; reinstalling the current version requires `--allow-reinstall`. The selected version then uses the existing fail-closed update/rollback process
+
 ## Updating and rolling back
 
 The first upgrade **from alpha.3 to alpha.4** must use the installer with SASPAM disabled because alpha.3 lacks the updater. Keep console access, disable the hook, install alpha.4, then rerun `doctor` and the Discord approval test before re-enabling.
@@ -119,8 +135,8 @@ The first upgrade **from alpha.3 to alpha.4** must use the installer with SASPAM
 For future versions that include the updater:
 
 ```bash
-sudo saspam update --version v0.1.0-alpha.4 --dry-run
-sudo saspam update --version v0.1.0-alpha.4 --allow-reinstall
+sudo saspam update --version v0.1.0-alpha.5 --dry-run
+sudo saspam update --version v0.1.0-alpha.5 --allow-reinstall
 sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
 sudo saspam update --rollback
 ```

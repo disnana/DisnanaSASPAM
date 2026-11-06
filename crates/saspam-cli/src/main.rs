@@ -1,6 +1,7 @@
 //! Administrative CLI: only the sshd PAM stack is modified.
 mod interactive;
 mod settings;
+mod updates;
 use saspam_protocol::{PamCommand, Reply, PAM_SOCKET, VERSION};
 use std::{
     env,
@@ -46,19 +47,15 @@ fn run(args: &[String]) -> Result<(), String> {
     }
 }
 fn update_version(args: &[String]) -> Result<(), String> {
-    root()?;
-    let helper = "/usr/local/lib/saspam/update.sh";
-    if !Path::new(helper).exists() {
-        return Err("Updater is not installed. Install alpha.4 or later with SASPAM disabled and a recovery console before using this command".into());
-    }
-    let result = Command::new("bash").arg(helper).args(args).status().map_err(|e|e.to_string())?;
-    if result.success() { Ok(()) } else { Err(format!("update/downgrade failed with exit status: {result}")) }
+    updates::run(args)
 }
+
 fn help() {
     let lang = settings::current_language();
     let common = "\n  sudo saspam doctor / test / status\n  sudo saspam enable --ack-recovery --ack-tested\n  sudo saspam disable\n  sudo saspam security audit|apply|rollback\n  sudo saspam uninstall --yes";
     if lang == "en" {
-        println!("DisnanaSASPAM v{} | SSH post-authentication approval\n  saspam / saspam menu            Interactive dashboard\n  sudo saspam setup               Initial setup / language\n  sudo saspam config              Partial settings menu\n  sudo saspam config show         Display current settings\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [VALUE]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\nConsole, sudo, su are not modified.",env!("CARGO_PKG_VERSION"),common);
+        println!("DisnanaSASPAM v{} | SSH post-authentication approval\n  saspam / saspam menu            Interactive dashboard\n  sudo saspam setup               Initial setup / language\n  sudo saspam config              Partial settings menu\n  sudo saspam config show         Display current settings\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [VALUE]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update / update --latest / update --list
+  sudo saspam update --version vX.Y.Z[-alpha.N]{}\nConsole, sudo, su are not modified.",env!("CARGO_PKG_VERSION"),common);
     } else {
         println!("DisnanaSASPAM v{} | SSH認証成功後の追加承認\n  saspam / saspam menu            対話形式の管理メニュー\n  sudo saspam setup               初期設定・言語選択\n  sudo saspam config              一部設定だけを変更\n  sudo saspam config show         現在の設定\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [値]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\n物理コンソール・sudo・suは変更しません",env!("CARGO_PKG_VERSION"),common);
     }
@@ -251,10 +248,37 @@ fn doctor() -> Result<(), String> {
     Ok(())
 }
 fn status() -> Result<(), String> {
-    println!("{}: {}",tr("SSHのPAM保護","SSH PAM protection enabled"), fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l == MARKER));
-    println!("{}: {}",tr("認証デーモン稼働中","saspamd active"), service_active("saspamd"));
-    println!("{}: {}",tr("Discord Bot稼働中","Discord Bot active"), service_active("saspam-discord"));
-    println!("{}: {}",tr("設定ファイル","Configuration present"), configured());
+    let lang = settings::current_language();
+    let active=fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l==MARKER);
+    let daemon=service_active("saspamd");
+    let bot=service_active("saspam-discord");
+    let config=configured();
+    let module=Path::new(PAM_MODULE).is_file();
+    let test=recent_approval_test();
+    let on=interactive::t(&lang,"有効","Enabled");
+    let off=interactive::t(&lang,"無効","Disabled");
+    let good=interactive::t(&lang,"正常","Running");
+    let stopped=interactive::t(&lang,"停止","Stopped");
+    let yes=interactive::t(&lang,"あり","Present");
+    let no=interactive::t(&lang,"なし","Missing");
+    println!("\nDisnanaSASPAM v{} — {}",env!("CARGO_PKG_VERSION"),
+        interactive::t(&lang,"現在の状態","Status"));
+    println!("────────────────────────────────────────────────");
+    println!("{}: {}",tr("SSH追加承認（PAM）","SSH approval (PAM)"),if active{on}else{off});
+    println!("{}: {}",tr("認証デーモン","Approval daemon"),if daemon{good}else{stopped});
+    println!("{}: {}",tr("Discord Bot","Discord Bot"),if bot{good}else{stopped});
+    println!("{}: {}",tr("PAMモジュール","PAM module"),if module{yes}else{no});
+    println!("{}: {}",tr("設定ファイル","Configuration"),if config{yes}else{no});
+    println!("{}: {}",tr("直近15分の承認テスト","Recent approval test (15 min)"),if test{yes}else{no});
+    println!("{}: {}",tr("言語","Language"),lang);
+    if active && (!daemon || !bot) {
+        println!("\n[!] {}",tr(
+            "SSH保護が有効ですがサービスが停止しています。新規SSHログインは拒否されるため、復旧コンソールを確認してください",
+            "SSH approval is enabled but a service is stopped. New SSH logins can fail closed; verify console recovery"));
+    }
+    if !active {
+        println!("\n{}",tr("SSHの追加承認は現在無効です","SSH approval is currently disabled"));
+    }
     Ok(())
 }
 fn test_login() -> Result<(), String> {
@@ -266,7 +290,7 @@ fn test_login() -> Result<(), String> {
     println!("{}",tr("Discordの承認メッセージから「承認」または「拒否」を選んでください","Choose Approve or Deny in the Discord message"));
     let mut stream = UnixStream::connect(PAM_SOCKET).map_err(|e| e.to_string())?;
     stream.set_read_timeout(Some(Duration::from_secs(195))).map_err(|e| e.to_string())?;
-    let cmd = PamCommand::Authorize {version:VERSION, user, service:"sshd".into(), remote_host:"SASPAM-CLI-TEST".into()};
+    let cmd = PamCommand::Authorize {version:VERSION, user, service:"sshd".into(), remote_host:"SASPAM-CLI-TEST".into(), auth_methods: vec![saspam_protocol::AuthMethod::Unknown]};
     stream.write_all(format!("{}\n",serde_json::to_string(&cmd).map_err(|e|e.to_string())?).as_bytes()).map_err(|e| e.to_string())?;
     let mut buf = String::new();
     BufReader::new(stream).read_line(&mut buf).map_err(|e|e.to_string())?;
