@@ -118,12 +118,13 @@ Bark and ntfy providers are external services; consider privacy implications bef
 
 ### Authentication methods in approval requests (v1.0.0-beta.2)
 
-**No OpenSSH patching policy.** SASPAM preserves Ubuntu distribution-managed OpenSSH security updates. Stock OpenSSH does not reliably provide verified methods at the PAM account boundary, so pending requests still show Unknown where metadata is unavailable. The experimental OpenSSH patch shipped separately with beta.1 is omitted from beta.2 releases. A safe, exact-request post-approval session update remains unimplemented research.
-,,**Important:** This beta uses unmodified Ubuntu OpenSSH and continues to show Unknown at the pending PAM account stage when reliable method metadata is unavailable. It does not replace sshd or pretend to identify an unverified authentication method.,,See [the documented technical limits](docs/auth-info-bridge.md) and remaining stable-release requirements.,,
+**SASPAM does not patch or replace Ubuntu's OpenSSH**. Preserving distribution security updates and recovery is a release requirement
 
-Discord embeds now show the **primary SSH authentication method** based on OpenSSH's PAM `SSH_AUTH_INFO_0` data: Public key, Password, FIDO security key, Keyboard-interactive, or multiple completed methods. If unavailable, the display explicitly says **Unknown** rather than guessing. SSH key material, fingerprints and passwords are never sent to Discord
+On tested stock Ubuntu 22.04/24.04 systems, `SSH_AUTH_INFO_0` is empty at the PAM account stage. The pending Discord approval card therefore continues to report **Unknown (unavailable)** rather than guessing whether a password, public key, or FIDO-backed key succeeded
 
-The parser has unit tests, but live SSH/PAM CI on Ubuntu 22.04/24.04 exposed an empty PAM authentication-info string, so these hosts currently show **Unknown**. Reliable method reporting and physical FIDO verification remain unresolved
+The historical Python `ssh.py` / `ssh_v2.py` approach is preserved in the optional [read-only `ssh_auth_events.py` audit tool](docs/ssh-auth-audit.md). After PAM approval, it can observe `Accepted password` / `Accepted publickey` and emit a **separate Discord audit notification** that includes the authenticated method. It adds no journal reads to the regular SASPAM approval path; an explicitly started monitor incurs its own low-volume read overhead
+
+The research OpenSSH patch included as a separate beta.1 Release attachment is **not shipped in beta.2**. Safely updating the original Discord card for the same exact SSH connection after approval is still unimplemented. See [technical and stable-release limits](docs/auth-info-bridge.md)
 
 ### Optional OpenSSH authentication log audit (alpha.6)
 
