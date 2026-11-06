@@ -14,7 +14,7 @@ exec 9>/run/lock/saspam-upgrade.lock
 flock -w 90 9 || { echo 'cannot obtain upgrade recovery lock' >&2; exit 1; }
 state=$(cat "$TX/state" 2>/dev/null || :)
 case "$state:$mode" in
-  pending:*|committed:--manual) ;;
+  pending:*|rolling-back:*|committed:--manual) ;;
   committed:*) exit 0 ;; # Timer runs after successful commit; do nothing.
   rolled-back:*) exit 0 ;;
   *) echo "transaction $id is not eligible for rollback ($state)" >&2; exit 1 ;;
@@ -27,6 +27,7 @@ done
   echo 'backup missing venv or configuration' >&2; exit 1;
 }
 printf 'rolling-back\n' > "$TX/state"
+# Keep the watchdog service resumable if this rollback process is interrupted.
 systemctl stop saspam-discord.service saspamd.service 2>/dev/null || :
 # Stage replacement files, then atomic rename; never truncate live ELF objects.
 install -m 0755 "$BACKUP/saspam" /usr/local/bin/saspam.rollback

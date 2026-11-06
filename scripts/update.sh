@@ -26,6 +26,9 @@ HELPER=/usr/local/lib/saspam/rollback-upgrade.sh
 [[ -x "$HELPER" ]] || { echo 'Recovery helper is missing; refusing update' >&2; exit 1; }
 command -v flock >/dev/null || { echo 'flock is required' >&2; exit 1; }
 install -d -m 0700 /var/lib/saspam/transactions
+# Reject concurrent transactions. The recovery timer uses a separate lock.
+exec 8>/run/lock/saspam-updater-singleton.lock
+flock -n 8 || { echo 'Another SASPAM update is already running' >&2; exit 1; }
 if (( MANUAL_ROLLBACK )); then
   LAST=$(cat /var/lib/saspam/last-committed-tx 2>/dev/null || :)
   [[ "$LAST" =~ ^tx-[a-zA-Z0-9]{8,16}$ ]] || { echo 'No committed update to roll back' >&2; exit 1; }
@@ -79,6 +82,11 @@ on_exit() {
   if (( status != 0 && ROLLBACK_NEEDED )); then
     exec 9>&-  # Release the lock before running the recovery helper.
     "$HELPER" "$id" || echo "CRITICAL: rollback failed, use the recovery console (transaction $id)" >&2
+  elif (( status != 0 )); then
+    # No live files have changed; discard temporary staging only.
+    if [[ -n "${NEW_VENV:-}" && "$NEW_VENV" == /opt/saspam/.venv.next-tx-* ]]; then
+      rm -rf -- "$NEW_VENV"
+    fi
   fi
   exit "$status"
 }
@@ -102,6 +110,9 @@ tar -xzf "$ASSET" --no-same-owner -C "$TX/bundle"
 for part in saspam saspamd pam_saspam.so bot.py requirements.txt saspamd.service saspam-discord.service; do
   [[ -f "$TX/bundle/$part" && ! -L "$TX/bundle/$part" ]] || { echo "Missing $part" >&2; exit 1; }
 done
+# Refuse incompatible versions before stopping either service.
+bash -c 'exec "$1" --check-config --config /etc/saspam/config.toml' bash "$TX/bundle/saspamd"
+python3 -m py_compile "$TX/bundle/bot.py"
 if (( DRY_RUN )); then
   echo "Release $TAG / $ARCH checksum and archive validation passed. No changes made."
   exit 0
