@@ -447,7 +447,7 @@ mod tests {
             let n = stream.read(&mut buf).await.unwrap();
             let request = String::from_utf8_lossy(&buf[..n]);
             assert!(request.starts_with("POST /secure1234567890abcdefghijklmnop HTTP/1.1"));
-            stream.write_all(b"HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n").await.unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
         });
         let mut config = Config::default();
         config.ntfy.enabled = true;
