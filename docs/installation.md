@@ -118,3 +118,7 @@ alpha.3には安全な更新コマンドがないため、復旧手段を確認�
 `sudo saspam config`で言語、Bark、ntfy、メンション、ロール、承認期限などを個別に変更できます。SSH保護が有効な場合は再起動に伴って承認中のログインが拒否される可能性があり、明示確認が必要です。`sudo saspam notify test ntfy`や`sudo saspam notify test bark`はPAMを変更せず送信を試します
 
 [更新・ダウングレード](updates.md) · [復旧手順](recovery.md) · [English version](en/installation.md)
+
+## alpha.5：SSHの一次認証方式を表示
+
+Discordの承認Embedで公開鍵/パスワード/FIDO/キーボード対話などを区別し、取得不可の場合は「不明」と表示します。OpenSSHのPAM環境`SSH_AUTH_INFO_0`を使い、鍵本体や指紋、パスワードは転送しません。FIDO実機での動作確認は別途必要です

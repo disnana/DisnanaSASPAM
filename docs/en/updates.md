@@ -75,3 +75,13 @@ sudo saspam update --rollback
 Keep the backup transaction files until you've reviewed and confirmed recovery. If the daemon cannot recover, use the provider console and, only as a deliberate recovery measure, `sudo saspam disable` (or remove SASPAM's exact managed PAM line). Do not delete unrelated PAM configuration.
 
 See [recovery](recovery.md) and [security limitations](security.md).
+
+## alpha.5: No version number required
+
+```bash
+sudo saspam update
+sudo saspam update --list
+sudo saspam update --latest
+```
+
+The CLI retrieves recent published GitHub Releases and offers an interactive selector showing newer/current/older status. Only Releases with a compatible architecture archive and SHA256SUMS appear. A downgrade must be explicitly authorized

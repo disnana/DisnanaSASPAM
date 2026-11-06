@@ -130,3 +130,7 @@ The selected provider must be enabled. These tests verify delivery from the daem
 | Timed-out SSH login | Default behavior is Fail Closed; see [recovery](recovery.md) |
 
 Read [updates and rollback](updates.md) before upgrading a host whose SSH PAM gate is already active.
+
+## alpha.5: Primary SSH authentication method
+
+The Discord approval Embed shows verified method categories (public key, password, FIDO, keyboard-interactive or unknown) from OpenSSH's `SSH_AUTH_INFO_0` PAM environment. The module never forwards raw public keys, fingerprints or passwords. Hardware FIDO classification still needs a real-device end-to-end test

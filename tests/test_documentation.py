@@ -18,8 +18,8 @@ class BilingualDocumentationTests(unittest.TestCase):
         english = (ROOT / "README.en.md").read_text(encoding="utf-8")
         self.assertIn("[English](README.en.md)", japanese)
         self.assertIn("[**日本語**](README.md)", english)
-        self.assertIn("v0.1.0-alpha.4", japanese)
-        self.assertIn("v0.1.0-alpha.4", english)
+        self.assertIn("v0.1.0-alpha.5", japanese)
+        self.assertIn("v0.1.0-alpha.5", english)
 
     def test_all_five_topics_have_language_switches(self):
         for topic in TOPICS:
