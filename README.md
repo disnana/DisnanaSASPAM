@@ -4,7 +4,7 @@
 
 **Disnana Simple Advanced Security PAM** — SSHの公開鍵・FIDO・パスワードによる**一次認証成功後**に、Discordで追加承認を求めるUbuntu向けPAMゲート
 
-> **v1.0.0-beta.1 / Developer Preview** — 独立したセキュリティ監査は未完了で、**本番SSHサーバーでの運用は推奨しません**。GitHub Actionsでは実際のSSH/PAM承認フローを検証済みですが、FIDO実機・Discord API全体のE2E・PAM有効状態での更新障害復旧には追加検証が必要です。必ず既存の管理用SSHセッションと、SSHに依存しない復旧用コンソールを確保してください
+> **v1.0.0-beta.2 / Developer Preview** — 独立したセキュリティ監査は未完了で、**本番SSHサーバーでの運用は推奨しません**。GitHub Actionsでは実際のSSH/PAM承認フローを検証済みですが、FIDO実機・Discord API全体のE2E・PAM有効状態での更新障害復旧には追加検証が必要です。必ず既存の管理用SSHセッションと、SSHに依存しない復旧用コンソールを確保してください
 
 ## 主な機能
 
@@ -40,7 +40,7 @@ Discord Botは通常のDiscord APIへ接続するため、Tailscale・NetBirdは
 **公開中のAlpha版はバージョンを明示して導入してください**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0-beta.1
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0-beta.2
 ```
 
 GitHub Releaseのアーカイブと`SHA256SUMS`を取得・照合します。**インストールだけではSSHのPAM保護は有効化されません**。正式安定版のReleaseはまだないため、バージョン省略で安定版を取得する運用はできません
@@ -116,11 +116,17 @@ Bark・ntfyは**通知専用**です。公開プッシュサービスへは接�
 
 SSH保護中の設定変更はサービスの再起動で一時的に承認要求が拒否されることがあります。CLIは変更前の確認を求め、検証・再起動に失敗した場合は旧設定への復旧を試みます。無停止変更の保証ではありません
 
-### 認証方式の表示（v1.0.0-beta.1）,,**重要:** このベータ版は、OpenSSHを改造した独立実験環境ではDiscord承認前の認証方式を取得できますが、**Ubuntu標準のOpenSSHでは今も「不明（取得不可）」です**。標準OpenSSHは勝手に置き換えず、改造版も自動導入しません。,,実験用の方法と、v1.0.0安定版で残る安全性・性能・実機Termiusの条件は[認証方式ブリッジの説明](docs/auth-info-bridge.md)を参照してください。,,
+### 認証方式の表示（v1.0.0-beta.2）
 
-Discordの承認Embedには、接続元・ユーザー名に加えて **SSHの一次認証方式** を表示します。OpenSSHのPAM環境 `SSH_AUTH_INFO_0` を読み、公開鍵、パスワード、FIDO鍵、keyboard-interactive、複数方式を区別します。取得できなければ「不明（取得不可）」と表示し、推測はしません
+**OpenSSH本体は改造・置換しません**。Ubuntu公式パッケージを維持し、セキュリティ更新と復旧手段を優先します
 
-SSH公開鍵の内容・指紋・パスワードは通知に含めません。パーサーの単体テストを追加済み。ただしUbuntu 22.04/24.04の実SSH/PAMテストではOpenSSHからこの情報が空で渡されるため、現状は「不明」と表示されます。確実な認証方式取得とFIDO実機検証は未完了です
+現行のSASPAMは、PAM account段階で認証方式の情報が取得できればDiscord承認待ち画面へ表示します。ただし、Ubuntu 22.04/24.04の標準OpenSSHでは `SSH_AUTH_INFO_0` が空になることを確認しており、実機では引き続き **「不明（取得不可）」** と表示されます。接続を承認する前に鍵の種類を推測しません
+
+**以前渡してもらった `ssh.py` / `ssh_v2.py` のログ監視方式は引き継いでいます**。`tools/ssh_auth_events.py` は `Accepted password` / `Accepted publickey` を監視して、承認後の認証方式を**独立したDiscord監査通知**として送信できます。通常のPAM承認経路への追加I/Oはありません。ツールを明示的に起動する場合のみ、ジャーナル読み取りの負荷が生じます
+
+ベータ.1の別添OpenSSH研究パッチはベータ.2のReleaseから除外しました。承認後のログを、元の承認Embedの**同一SSH接続**へ安全に結び付けて更新する機能はまだ未実装です
+
+詳しくは[ログ監視の使い方](docs/ssh-auth-audit.md)と[認証方式取得の制約](docs/auth-info-bridge.md)を参照してください
 
 ### SSH認証ログの監査（alpha.6・任意）
 

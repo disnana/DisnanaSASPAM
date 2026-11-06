@@ -1,6 +1,14 @@
 # SSH認証方式の取得・安全性 / Verified auth method bridge
 
-## v1.0.0-beta.1 の位置づけ
+## 方針変更：OpenSSH本体は改造しない / No OpenSSH patching
+
+**Ubuntu標準のOpenSSHは変更・置換しません**。ディストリビューションのセキュリティ更新と復旧手段を維持します。beta.1で別添配布した実験用パッチは研究用で、本番環境への適用は推奨しません。beta.2以降のReleaseアセットから除外します。
+
+PAM account承認前の認証方式は、標準OpenSSHで確実に取得する方法が確認できていません。「不明（取得不可）」を表示し、設定や公開鍵の提示だけから推測しません。承認後のPAM session情報を要求IDで結び付けて表示更新する案は未実装で、承認前表示と同等ではありません。
+
+**English:** SASPAM will not patch or replace distribution-managed sshd. Verified pre-approval method metadata is not reliably available at the stock Ubuntu PAM account stage; show Unknown. The research patch from beta.1 is not shipped with beta.2. A verified post-approval session update may be explored, but is not equivalent to verified pre-approval information.
+
+## v1.0.0-beta.1 の研究経緯
 
 本リリースは**検証用ベータ版**です。実験用の修正OpenSSHが `SASPAM_VERIFIED_AUTH_INFO_0` をPAMに渡す場合のみ、Discordの承認待ち画面で認証方式を確認できます。
 
