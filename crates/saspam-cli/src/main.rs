@@ -293,7 +293,7 @@ fn test_login() -> Result<(), String> {
     println!("{}",tr("Discordの承認メッセージから「承認」または「拒否」を選んでください","Choose Approve or Deny in the Discord message"));
     let mut stream = UnixStream::connect(PAM_SOCKET).map_err(|e| e.to_string())?;
     stream.set_read_timeout(Some(Duration::from_secs(195))).map_err(|e| e.to_string())?;
-    let cmd = PamCommand::Authorize {version:VERSION, user, service:"sshd".into(), remote_host:"SASPAM-CLI-TEST".into()};
+    let cmd = PamCommand::Authorize {version:VERSION, user, service:"sshd".into(), remote_host:"SASPAM-CLI-TEST".into(), auth_methods: vec![saspam_protocol::AuthMethod::Unknown]};
     stream.write_all(format!("{}\n",serde_json::to_string(&cmd).map_err(|e|e.to_string())?).as_bytes()).map_err(|e| e.to_string())?;
     let mut buf = String::new();
     BufReader::new(stream).read_line(&mut buf).map_err(|e|e.to_string())?;
