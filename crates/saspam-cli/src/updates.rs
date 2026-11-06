@@ -41,11 +41,18 @@ fn parse_version(tag:&str)->Option<Version> {
     let minor=digits.next()?.parse().ok()?;
     let patch=digits.next()?.parse().ok()?;
     if digits.next().is_some(){return None;}
-    let pre=pre.map(|s|s.split('.').map(|v|{
-        if v.is_empty() || !v.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'-'){return None;}
-        if v.bytes().all(|b|b.is_ascii_digit()){Some(Identifier::Numeric(v.parse().ok()?))}
-        else {Some(Identifier::Text(v.to_owned()))}
-    }).collect::<Option<Vec<_>>>()).transpose()?;
+    let pre=match pre {
+        None=>None,
+        Some(raw)=>{
+            let parsed=raw.split('.').map(|v|{
+                if v.is_empty() || !v.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'-'){return None;}
+                if v.bytes().all(|b|b.is_ascii_digit()){
+                    Some(Identifier::Numeric(v.parse().ok()?))
+                } else {Some(Identifier::Text(v.to_owned()))}
+            }).collect::<Option<Vec<_>>>()?;
+            Some(parsed)
+        },
+    };
     if matches!(pre,Some(ref v) if v.is_empty()){return None;}
     Some(Version{major,minor,patch,pre})
 }
