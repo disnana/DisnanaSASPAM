@@ -31,6 +31,7 @@ def main():
     parser.add_argument("decision", choices=("approve", "deny"))
     parser.add_argument("--timeout", type=float, default=15)
     parser.add_argument("--user", default="saspam-ci")
+    parser.add_argument("--expect-auth", choices=("public_key", "password", "fido", "unknown"))
     args = parser.parse_args()
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
@@ -39,6 +40,11 @@ def main():
         matches = [r for r in reply["requests"] if r["user"] == args.user and r["status"] == "pending"]
         if matches:
             row = max(matches, key=lambda r: r["created_unix"])
+            if args.expect_auth:
+                observed = row.get("auth_methods") or ["unknown"]
+                if args.expect_auth not in observed:
+                    print(f"Expected SSH auth {args.expect_auth}, observed {observed}", file=sys.stderr)
+                    return 1
             result = call({"action": "decide", "request_id": row["request_id"],
                            "decision": args.decision, "actor_id": "123456789012345678",
                            "guild_id": "111111111111111111", "channel_id": "222222222222222222",
