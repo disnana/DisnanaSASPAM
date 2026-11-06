@@ -25,6 +25,8 @@ Discordへの**別の監査通知**を有効にする場合だけ、非公開の
 
 Webhook URLをコマンド引数、ソースコード、GitHubに置かないこと。旧コードに含まれたWebhookがまだ有効なら再生成してください。Discordの allowed_mentions は空、通知は毎分最大30件、90秒以内の同一イベントは重複除外します。
 
+journal JSONを処理する際は、呼び出し元が自由に設定できる SYSLOG_IDENTIFIER だけでなく、systemdが付与する _EXE が既知のOpenSSH実行ファイルであることも確認します。これでも監査ログはログイン許可の根拠にはできません。
+
 取得できるのはユーザー名、接続元IP、接続元ポート、認証方式、あればjournalのPIDだけ。秘密鍵、公開鍵指紋、パスワード、元ログは転送しません。鍵アルゴリズムがログに無ければ公開鍵認証という分類に留めます。ECDSA-SK、ED25519-SKを区別します。OpenSSH/PAM、SSH設定、Firewallの変更はありません。
 
 ### 未完了
@@ -46,6 +48,8 @@ Run manually:
     sudo python3 tools/ssh_auth_events.py --journal-follow
 
 For explicitly opted-in **separate audit notifications** set a private SASPAM_AUDIT_DISCORD_WEBHOOK environment variable and add --discord. The Discord webhook is HTTPS-only; user mentions are disabled; duplicate events and excess notifications are suppressed. The output is a sanitized JSON observation with method, user, source IP/port and optional journal PID; never a credential or full log. In the absence of an algorithm, publickey remains generic.
+
+Journal JSON is accepted only when the systemd-provided _EXE field identifies a known OpenSSH executable; the user-settable SYSLOG_IDENTIFIER alone is not trusted.
 
 An Accepted line is not a reliable input for a pending approval card and does not itself prove a fully established SSH session. This code does not modify the PAM gate, sshd, firewall, or systemd units. Real deployments, exact connection binding, privilege isolation, concurrent-session tests, real FIDO hardware, and upgrade/rollback support are still pending.
 
