@@ -1,6 +1,6 @@
 //! Minimal TestDisk-style terminal menus with no heavyweight TUI framework.
 //! Raw mode is only used while selecting a menu item, never inside PAM.
-use std::{io::{self, IsTerminal, Read, Write}, mem::MaybeUninit};
+use std::{io::{self, IsTerminal, Write}, mem::MaybeUninit};
 
 pub fn t<'a>(language: &str, ja: &'a str, en: &'a str) -> &'a str {
     if language == "en" { en } else { ja }
@@ -36,69 +36,210 @@ impl Drop for RawTty {
     }
 }
 
-fn input_ready(timeout_ms: i32) -> Result<bool, String> {
-    let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
-    let rc = unsafe { libc::poll(&mut fd, 1, timeout_ms) };
-    if rc < 0 { return Err(io::Error::last_os_error().to_string()); }
-    Ok(rc > 0 && (fd.revents & libc::POLLIN != 0))
+// Direct fd reads only. Mixing std::io::Stdin's internal buffer with poll(0)
+// previously meant that ESC [ B was consumed by Stdin while poll(0) saw no
+// data, so Down was incorrectly treated as the Esc/exit key.
+fn read_tty_byte(timeout_ms: i32) -> io::Result<Option<u8>> {
+    loop {
+        let mut fd = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+        let rc = unsafe { libc::poll(&mut fd, 1, timeout_ms) };
+        if rc == 0 { return Ok(None); }
+        if rc < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted { continue; }
+            return Err(error);
+        }
+        if fd.revents & libc::POLLIN == 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "terminal input disconnected"));
+        }
+        let mut byte = 0u8;
+        let n = unsafe { libc::read(libc::STDIN_FILENO, (&mut byte as *mut u8).cast(), 1) };
+        if n == 1 { return Ok(Some(byte)); }
+        if n == 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "terminal input ended"));
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted { return Err(error); }
+    }
 }
 
-/// Use Up/Down, Enter/Space, Esc/Q. Return None if user backs out.
+#[derive(Debug, PartialEq, Eq)]
+enum MenuKey { Up, Down, Confirm, Back, Backspace, Digit(u8), Ignore }
+
+/// ANSI CSI and SS3 cursor-key sequences are supported, including CSI
+/// modifiers (ESC [ 1 ; 5 A). Incomplete CSI must never act as a bare Esc.
+fn read_menu_key() -> Result<MenuKey, String> {
+    let Some(first) = read_tty_byte(-1).map_err(|e| e.to_string())? else {
+        return Ok(MenuKey::Ignore);
+    };
+    Ok(match first {
+        b'\n' | b'\r' | b' ' => MenuKey::Confirm,
+        b'q' | b'Q' | 3 => MenuKey::Back,
+        8 | 127 => MenuKey::Backspace,
+        b'j' => MenuKey::Down,
+        b'k' => MenuKey::Up,
+        b'0'..=b'9' => MenuKey::Digit(first - b'0'),
+        27 => {
+            match read_tty_byte(350).map_err(|e| e.to_string())? {
+                // A standalone Esc is Back. Never interpret a partially
+                // received escape sequence as a request to close the menu.
+                None => MenuKey::Back,
+                Some(b'[') => {
+                    let mut result = MenuKey::Ignore;
+                    for _ in 0..24 {
+                        match read_tty_byte(350).map_err(|e| e.to_string())? {
+                            Some(b'A') => { result = MenuKey::Up; break; }
+                            Some(b'B') => { result = MenuKey::Down; break; }
+                            Some(b'0'..=b'9' | b';' | b':' | b'?') => (),
+                            // Stop at the ANSI final byte: do not accidentally
+                            // parse sequence fragments as menu number input.
+                            Some(0x40..=0x7e) | None => break,
+                            Some(_) => break,
+                        }
+                    }
+                    result
+                }
+                Some(b'O') => match read_tty_byte(350).map_err(|e| e.to_string())? {
+                    Some(b'A') => MenuKey::Up,
+                    Some(b'B') => MenuKey::Down,
+                    _ => MenuKey::Ignore,
+                },
+                // Alt+key and malformed sequences must not exit the menu.
+                Some(_) => MenuKey::Ignore,
+            }
+        }
+        _ => MenuKey::Ignore,
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum MenuResult { Continue, Selected(usize), Back }
+
+struct MenuState {
+    index: usize,
+    digits: String,
+    invalid: bool,
+}
+impl MenuState {
+    fn new(selected: usize, count: usize) -> Self {
+        Self { index: selected.min(count.saturating_sub(1)), digits: String::new(), invalid: false }
+    }
+
+    fn number(&self, count: usize) -> Option<usize> {
+        if self.digits == "0" { return Some(0); }
+        if self.digits.starts_with('0') { return None; }
+        let n = self.digits.parse::<usize>().ok()?;
+        if (1..=count).contains(&n) { Some(n) } else { None }
+    }
+
+    fn highlighted(&self, count: usize) -> usize {
+        self.number(count).filter(|n| *n > 0).map_or(self.index, |n| n - 1)
+    }
+
+    fn apply(&mut self, key: MenuKey, count: usize) -> MenuResult {
+        match key {
+            MenuKey::Back => return MenuResult::Back,
+            MenuKey::Up => {
+                self.index = (self.highlighted(count) + count - 1) % count;
+                self.digits.clear();
+                self.invalid = false;
+            }
+            MenuKey::Down => {
+                self.index = (self.highlighted(count) + 1) % count;
+                self.digits.clear();
+                self.invalid = false;
+            }
+            MenuKey::Digit(n) => {
+                // Retain the entire number until Enter/Space; do not turn
+                // 111 into "11" followed by an accidental action on "1".
+                if self.digits.len() < 6 {
+                    self.digits.push(char::from(b'0' + n));
+                    self.invalid = false;
+                } else {
+                    self.invalid = true;
+                }
+            }
+            MenuKey::Backspace => {
+                self.digits.pop();
+                self.invalid = false;
+            }
+            MenuKey::Confirm => {
+                if self.digits.is_empty() { return MenuResult::Selected(self.index); }
+                match self.number(count) {
+                    Some(0) => return MenuResult::Back,
+                    Some(n) => return MenuResult::Selected(n - 1),
+                    None => self.invalid = true,
+                }
+            }
+            MenuKey::Ignore => (),
+        }
+        MenuResult::Continue
+    }
+}
+
+/// Use Up/Down, number + Enter/Space, Esc/Q. Return None if user backs out.
 pub fn choose(title: &str, entries: &[String], selected: usize, language: &str) -> Result<Option<usize>, String> {
     if entries.is_empty() { return Ok(None); }
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        println!("\n{title}");
-        for (idx, entry) in entries.iter().enumerate() { println!(" {}. {}", idx+1, entry); }
-        print!("{} ", t(language, "番号（0で戻る）:", "Number (0 to go back):"));
-        io::stdout().flush().map_err(|e| e.to_string())?;
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer).map_err(|e| e.to_string())?;
-        let n: usize = answer.trim().parse().map_err(|_| "invalid menu selection")?;
-        return Ok(if n == 0 { None } else if n <= entries.len() { Some(n-1) } else {
-            return Err("menu selection out of range".into());
-        });
+        loop {
+            println!("\n{title}");
+            for (idx, entry) in entries.iter().enumerate() { println!(" {}. {}", idx + 1, entry); }
+            print!("{} ", t(language, "番号（0で戻る）:", "Number (0 to go back):"));
+            io::stdout().flush().map_err(|e| e.to_string())?;
+            let mut answer = String::new();
+            if io::stdin().read_line(&mut answer).map_err(|e| e.to_string())? == 0 { return Ok(None); }
+            let trimmed = answer.trim();
+            if trimmed == "0" { return Ok(None); }
+            if !trimmed.is_empty() && !trimmed.starts_with('0')
+                && trimmed.bytes().all(|b| b.is_ascii_digit()) {
+                if let Ok(n) = trimmed.parse::<usize>() {
+                    if (1..=entries.len()).contains(&n) { return Ok(Some(n - 1)); }
+                }
+            }
+            eprintln!("{}", t(language,
+                "範囲外の番号です。メニューは終了しません",
+                "Invalid number. The menu remains open"));
+        }
     }
-    let mut index = selected.min(entries.len()-1);
+    let mut state = MenuState::new(selected, entries.len());
     let _raw = RawTty::enter().map_err(|e| e.to_string())?;
-    let mut stdin = io::stdin();
     loop {
         print!("\x1b[2J\x1b[H\x1b[1;36m╔══════════════════════════════════════════════════╗\n");
         println!("  DisnanaSASPAM  •  {}\x1b[0m", title);
         print!("\x1b[36m╚══════════════════════════════════════════════════╝\x1b[0m\n\n");
         for (idx, entry) in entries.iter().enumerate() {
-            if idx == index { print!("\x1b[30;46m ❯ {:<2}  {} \x1b[0m\n", idx+1, entry); }
-            else { println!("   {:<2}  {}", idx+1, entry); }
+            if idx == state.highlighted(entries.len()) {
+                print!("\x1b[30;46m ❯ {:<2}  {} \x1b[0m\n", idx + 1, entry);
+            } else {
+                println!("   {:<2}  {}", idx + 1, entry);
+            }
         }
-        println!("\n\x1b[2m{}\x1b[0m", t(language, "↑↓ 移動 / Enter・Space 選択 / Esc・Q 戻る / Ctrl+C 戻る", "↑↓ Move / Enter・Space Select / Esc・Q Back / Ctrl+C Back"));
+        println!("\n\x1b[2m{}\x1b[0m", t(language,
+            "↑↓ 移動 / 数字+Enter 選択 / Space 選択 / Backspace 修正 / 0+Enter・Esc・Q 戻る",
+            "↑↓ Move / Number+Enter Select / Space Select / Backspace Edit / 0+Enter, Esc, Q Back"));
+        if !state.digits.is_empty() {
+            print!("{} \x1b[1m{}\x1b[0m", t(language, "番号入力:", "Number:"), state.digits);
+            if state.number(entries.len()).is_none() {
+                print!(" \x1b[33m{}\x1b[0m", t(language, "（範囲外）", "(out of range)"));
+            }
+            println!();
+        }
+        if state.invalid {
+            println!("\x1b[31m{}\x1b[0m", t(language,
+                "番号が範囲外です。Backspaceで修正するか↑↓で選択してください",
+                "Number out of range. Use Backspace to edit or ↑↓ to navigate"));
+        }
         io::stdout().flush().map_err(|e| e.to_string())?;
-        let mut buf = [0u8; 1];
-        if stdin.read(&mut buf).map_err(|e| e.to_string())? == 0 { return Ok(None); }
-        match buf[0] {
-            b'\n' | b'\r' | b' ' => { print!("\x1b[2J\x1b[H"); return Ok(Some(index)); }
-            3 | b'q' | b'Q' => { print!("\x1b[2J\x1b[H"); return Ok(None); }
-            b'j' => index = (index + 1) % entries.len(),
-            b'k' => index = (index + entries.len() - 1) % entries.len(),
-            b'1'..=b'9' => {
-                let v = (buf[0] - b'1') as usize;
-                if v < entries.len() { index = v; }
+        match state.apply(read_menu_key()?, entries.len()) {
+            MenuResult::Continue => (),
+            MenuResult::Selected(index) => {
+                print!("\x1b[2J\x1b[H");
+                return Ok(Some(index));
             }
-            27 => {
-                let mut second = [0u8;1];
-                if !input_ready(65)? || stdin.read(&mut second).map_err(|e| e.to_string())? == 0 {
-                    print!("\x1b[2J\x1b[H"); return Ok(None);
-                }
-                if second[0] == b'[' {
-                    let mut third = [0u8;1];
-                    if input_ready(65)? && stdin.read(&mut third).map_err(|e| e.to_string())? > 0 {
-                        match third[0] {
-                            b'A' => index = (index + entries.len() - 1) % entries.len(),
-                            b'B' => index = (index + 1) % entries.len(),
-                            _ => (),
-                        }
-                    }
-                } else { print!("\x1b[2J\x1b[H"); return Ok(None); }
+            MenuResult::Back => {
+                print!("\x1b[2J\x1b[H");
+                return Ok(None);
             }
-            _ => (),
         }
     }
 }
@@ -172,4 +313,58 @@ mod tests {
         assert_eq!(t("en", "確認", "Check"), "Check");
         assert_eq!(t("invalid", "確認", "Check"), "確認");
     }
+    #[test]
+    fn numbers_are_committed_only_on_confirm_and_can_be_two_digits() {
+        let mut s = MenuState::new(0, 11);
+        assert_eq!(s.apply(MenuKey::Digit(1), 11), MenuResult::Continue);
+        assert_eq!(s.apply(MenuKey::Digit(1), 11), MenuResult::Continue);
+        assert_eq!(s.highlighted(11), 10);
+        assert_eq!(s.apply(MenuKey::Confirm, 11), MenuResult::Selected(10));
+    }
+
+    #[test]
+    fn twelve_and_one_hundred_eleven_do_not_execute_or_exit_an_eleven_item_menu() {
+        for digits in ["12", "111"] {
+            let mut s = MenuState::new(0, 11);
+            for b in digits.bytes() {
+                assert_eq!(s.apply(MenuKey::Digit(b - b'0'), 11), MenuResult::Continue);
+            }
+            assert_eq!(s.apply(MenuKey::Confirm, 11), MenuResult::Continue);
+            assert!(s.invalid);
+            assert_eq!(s.index, 0);
+            assert_eq!(s.digits, digits);
+        }
+    }
+
+    #[test]
+    fn backspace_corrects_invalid_numbers_without_activating_an_earlier_digit() {
+        let mut s = MenuState::new(0, 11);
+        for n in [1, 1, 1] { s.apply(MenuKey::Digit(n), 11); }
+        assert_eq!(s.apply(MenuKey::Confirm, 11), MenuResult::Continue);
+        assert_eq!(s.apply(MenuKey::Backspace, 11), MenuResult::Continue);
+        assert_eq!(s.apply(MenuKey::Confirm, 11), MenuResult::Selected(10));
+    }
+
+    #[test]
+    fn back_requires_only_zero_and_zero_prefixes_are_not_accepted() {
+        let mut s = MenuState::new(0, 11);
+        s.apply(MenuKey::Digit(0), 11);
+        assert_eq!(s.apply(MenuKey::Confirm, 11), MenuResult::Back);
+        s.apply(MenuKey::Digit(0), 11);
+        assert_eq!(s.apply(MenuKey::Confirm, 11), MenuResult::Continue);
+        assert!(s.invalid);
+    }
+
+    #[test]
+    fn arrow_keys_discard_number_entry_and_wrap() {
+        let mut s = MenuState::new(0, 11);
+        s.apply(MenuKey::Digit(1), 11);
+        s.apply(MenuKey::Digit(1), 11);
+        s.apply(MenuKey::Down, 11);
+        assert_eq!(s.index, 0);
+        assert!(s.digits.is_empty());
+        s.apply(MenuKey::Up, 11);
+        assert_eq!(s.index, 10);
+    }
+
 }
