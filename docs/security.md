@@ -2,7 +2,7 @@
 
 **日本語** | [English](en/security.md) · [ドキュメント一覧](README.md) · [README](../README.md)
 
-> **未監査のAlpha版**。GitHub Actionsでは複数Ubuntuの実SSH/PAM統合テストに成功していますが、実Discord APIやFIDOハードウェアを含むE2E検証と、独立したセキュリティ監査は未完了です。本番SSHへの導入は推奨しません。
+> **v1.0.0（独立監査は未完了）**。GitHub Actionsでは複数Ubuntuの実SSH/PAM統合テストに成功していますが、実Discord APIやFIDOハードウェアを含むE2E検証と、独立したセキュリティ監査は未完了です。本番SSHへの導入は推奨しません。
 
 ## 守るもの
 
