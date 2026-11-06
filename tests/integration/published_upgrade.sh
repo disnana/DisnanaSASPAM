@@ -46,7 +46,7 @@ if sudo saspam notify test ntfy >/dev/null 2>&1; then
 fi
 # The TestDisk-style menu has a deterministic numbered fallback for CI.
 printf '2\n0\n' | sudo saspam menu
-[[ $(cat /var/lib/saspam/installed-version) == "$TAG" ]] || {
+[[ $(sudo cat /var/lib/saspam/installed-version) == "$TAG" ]] || {
   echo 'Installed version is not recorded' >&2; exit 1;
 }
 # Basic semantic version gate: do not permit alpha.3 downgrade without explicit consent.
@@ -56,10 +56,10 @@ fi
 grep -q 'Downgrade requires --allow-downgrade' /tmp/saspam-downgrade-test.log
 # Real published archive + transaction + watchdog + manual recovery.
 sudo saspam update --version "$TAG" --allow-reinstall --skip-approval-test
-[[ $(cat /var/lib/saspam/installed-version) == "$TAG" ]] || exit 1
+[[ $(sudo cat /var/lib/saspam/installed-version) == "$TAG" ]] || exit 1
 [[ -x /usr/local/lib/saspam/rollback-upgrade.sh ]] || exit 1
 sudo saspam update --rollback
-[[ $(cat /var/lib/saspam/installed-version) == "$TAG" ]] || exit 1
+[[ $(sudo cat /var/lib/saspam/installed-version) == "$TAG" ]] || exit 1
 sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
 if grep -q pam_saspam.so /etc/pam.d/sshd; then
   echo 'An updater unexpectedly changed the PAM stack' >&2; exit 1;
