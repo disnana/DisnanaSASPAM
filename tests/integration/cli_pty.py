@@ -86,10 +86,10 @@ class MenuPtyTests(unittest.TestCase):
     def test_invalid_multidigit_numbers_do_not_execute_any_item(self):
         process, master = self.open_menu()
         self.send(master, b"12\r")
-        self.read_until(master, "範囲外".encode(), alternative=b"out of range")
+        self.read_until(master, "番号が範囲外".encode(), alternative=b"Number out of range")
         self.assertIsNone(process.poll(), "'12' incorrectly executed a command or quit")
         self.send(master, b"\x7f\x7f111\r")
-        self.read_until(master, "範囲外".encode(), alternative=b"out of range")
+        self.read_until(master, "番号が範囲外".encode(), alternative=b"Number out of range")
         self.assertIsNone(process.poll(), "'111' incorrectly executed a command or quit")
         self.send(master, b"\x7f\x7f\x7f10\r")
         self.assertEqual(process.wait(timeout=5), 0)
