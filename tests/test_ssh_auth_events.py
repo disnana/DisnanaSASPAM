@@ -38,13 +38,16 @@ class OpenSSHLogParsing(unittest.TestCase):
 
     def test_journal_json_identifier_and_pid(self):
         row = {
-            "SYSLOG_IDENTIFIER": "sshd", "_PID": "12345",
+            "SYSLOG_IDENTIFIER": "sshd", "_EXE": "/usr/sbin/sshd", "_PID": "12345",
             "MESSAGE": "Accepted publickey for ubuntu from 192.0.2.8 port 42010 ssh2: ECDSA-SK SHA256:fingerprint",
         }
         event = mod.parse_line(json.dumps(row))
         self.assertEqual(event["method"], "fido_ecdsa_sk")
         self.assertEqual(event["journal_pid"], 12345)
         row["SYSLOG_IDENTIFIER"] = "attacker"
+        self.assertIsNone(mod.parse_line(json.dumps(row)))
+        row["SYSLOG_IDENTIFIER"] = "sshd"
+        row["_EXE"] = "/tmp/fake-sshd"
         self.assertIsNone(mod.parse_line(json.dumps(row)))
 
     def test_ignore_failed_attempts_and_untrusted_lines(self):
