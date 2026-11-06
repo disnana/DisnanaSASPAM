@@ -4,7 +4,7 @@
 
 **Disnana Simple Advanced Security PAM** — SSHの公開鍵・FIDO・パスワードによる**一次認証成功後**に、Discordで追加承認を求めるUbuntu向けPAMゲート
 
-> **v0.1.0-alpha.6 / Developer Preview** — 独立したセキュリティ監査は未完了で、**本番SSHサーバーでの運用は推奨しません**。GitHub Actionsでは実際のSSH/PAM承認フローを検証済みですが、FIDO実機・Discord API全体のE2E・PAM有効状態での更新障害復旧には追加検証が必要です。必ず既存の管理用SSHセッションと、SSHに依存しない復旧用コンソールを確保してください
+> **v0.1.0-alpha.7 / Developer Preview** — 独立したセキュリティ監査は未完了で、**本番SSHサーバーでの運用は推奨しません**。GitHub Actionsでは実際のSSH/PAM承認フローを検証済みですが、FIDO実機・Discord API全体のE2E・PAM有効状態での更新障害復旧には追加検証が必要です。必ず既存の管理用SSHセッションと、SSHに依存しない復旧用コンソールを確保してください
 
 ## 主な機能
 
@@ -40,7 +40,7 @@ Discord Botは通常のDiscord APIへ接続するため、Tailscale・NetBirdは
 **公開中のAlpha版はバージョンを明示して導入してください**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.6
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.7
 ```
 
 GitHub Releaseのアーカイブと`SHA256SUMS`を取得・照合します。**インストールだけではSSHのPAM保護は有効化されません**。正式安定版のReleaseはまだないため、バージョン省略で安定版を取得する運用はできません
@@ -87,6 +87,10 @@ sudo saspam status
 ```
 
 ## TestDisk風メニューと設定の部分変更
+
+**Alpha.7の操作修正:** SSH・PTY端末の↑↓キーでメニューが終了する問題を修正しました。ANSI CSI / SS3 / 修飾キー付きカーソルシーケンスに対応します。数字は`10`・`11`など複数桁も入力でき、EnterまたはSpaceを押してはじめて確定します。存在しない番号（例: 11項目の画面で`12`や`111`）は範囲外と表示し、メニューを終了しません。`0`+EnterまたはEsc・Qで戻り、Backspaceで数字を修正できます。数字を打ちかけて↑↓を押すと、入力を取り消してカーソル移動します
+
+
 
 ```bash
 sudo saspam                         # ↑↓ / Enter / Space / Esc

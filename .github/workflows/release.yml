@@ -41,6 +41,8 @@ jobs:
         run: |
           cargo test --locked --workspace
           cargo build --locked --release --workspace
+      - name: Real PTY CLI menu regression
+        run: python3 tests/integration/cli_pty.py target/release/saspam
       - name: Real SSH login approval/denial regression (amd64)
         if: matrix.arch == 'amd64'
         run: bash tests/integration/ssh_roundtrip.sh

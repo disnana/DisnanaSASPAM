@@ -30,6 +30,8 @@ jobs:
         run: cargo test --locked --workspace
       - name: Build release artifacts
         run: cargo build --locked --release --workspace
+      - name: Real PTY menu navigation and numeric input tests
+        run: python3 tests/integration/cli_pty.py target/release/saspam
 
   scripts:
     name: Python and shell validation
