@@ -85,7 +85,7 @@ PermitRootLogin no
 AllowUsers saspam-ci
 MaxAuthTries 3
 LogLevel INFO
-LogVerbose auth2-pubkey.c:userauth_pubkey:*
+LogVerbose auth2-pubkey.c:userauth_pubkey():*
 EOF
 sudo /usr/sbin/sshd -t -f "$TMP/sshd.conf"
 sudo systemd-run --unit=saspam-sshd-ci --property=Restart=no /usr/sbin/sshd -D -e -f "$TMP/sshd.conf"
