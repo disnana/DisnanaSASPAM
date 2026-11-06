@@ -28,7 +28,7 @@ pub enum Decision { Approve, Deny }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AuthMethod { PublicKey, Fido, Password, KeyboardInteractive, Hostbased, Unknown }
+pub enum AuthMethod { PublicKey, Fido, FidoEcdsaSk, FidoEd25519Sk, Password, KeyboardInteractive, Hostbased, Unknown }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

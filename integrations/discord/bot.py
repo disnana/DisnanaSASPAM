@@ -112,7 +112,9 @@ def embed(req: dict[str, Any], language: str = "ja") -> discord.Embed:
     auth_labels = {
         "public_key": ("公開鍵認証", "Public key"),
         "password": ("パスワード認証", "Password"),
-        "fido": ("FIDO認証", "FIDO security key"),
+        "fido": ("公開鍵認証（FIDO対応鍵）", "Public key (FIDO-backed)"),
+        "fido_ecdsa_sk": ("公開鍵認証（FIDO / ECDSA-SK）", "Public key (FIDO / ECDSA-SK)"),
+        "fido_ed25519_sk": ("公開鍵認証（FIDO / Ed25519-SK）", "Public key (FIDO / Ed25519-SK)"),
         "keyboard_interactive": ("キーボード対話認証", "Keyboard-interactive"),
         "hostbased": ("ホストベース認証", "Host-based"),
         "unknown": ("不明（取得不可）", "Unknown (unavailable)"),
@@ -124,8 +126,8 @@ def embed(req: dict[str, Any], language: str = "ja") -> discord.Embed:
     for method in auth_methods:
         ja, en = auth_labels.get(method, auth_labels["unknown"]) if isinstance(method, str) else auth_labels["unknown"]
         label = translate(language, ja, en)
-        if label not in labels:
-            labels.append(label)
+        # Preserve ordered multi-factor sequences, including publickey,publickey.
+        labels.append(label)
     e.add_field(name=translate(language, "🔑 SSH一次認証方式", "🔑 SSH authentication method"),
                 value=" + ".join(labels), inline=False)
     created = int(req.get("created_unix", 0))

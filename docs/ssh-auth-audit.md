@@ -17,7 +17,7 @@ OpenSSHソースで auth_log の呼び出しが PAM account より前でも、pr
 ソースチェックアウトに加え、Alpha.6以降はReleaseから単体ファイルを取得できます。配布物と同じReleaseのチェックサムを照合してください（独立した発行者署名ではありません）。
 
 ```bash
-TAG=v0.1.0-alpha.7
+TAG=v1.0.0-beta.1
 BASE="https://github.com/disnana/DisnanaSASPAM/releases/download/$TAG"
 curl --proto '=https' --tlsv1.2 -fsSLO "$BASE/SHA256SUMS"
 curl --proto '=https' --tlsv1.2 -fsSLO "$BASE/ssh_auth_events-$TAG.py"
