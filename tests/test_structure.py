@@ -38,6 +38,17 @@ class StructureTests(unittest.TestCase):
                 self.assertIn("runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c", data)
                 self.assertNotIn("chmod -R a+rX /etc/saspam", data)
 
+    def test_safe_update_never_disables_pam(self):
+        upgrade = (ROOT / "scripts/update.sh").read_text()
+        rollback = (ROOT / "scripts/rollback-upgrade.sh").read_text()
+        self.assertNotIn("saspam disable", upgrade)
+        self.assertNotIn("saspam disable", rollback)
+        self.assertIn("systemd-run --unit=", upgrade)
+        self.assertIn("trap on_exit EXIT", upgrade)
+        self.assertIn("flock -w", rollback)
+        self.assertIn("--block-new-ssh", upgrade)
+        self.assertIn("refusing unsafe firewall changes", upgrade)
+
     def test_bot_runs_without_root(self):
         unit = (ROOT / "systemd/saspam-discord.service").read_text()
         self.assertIn("User=saspam-bot", unit)

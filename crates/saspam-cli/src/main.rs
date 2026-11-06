@@ -34,6 +34,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "menu" => interactive::main_menu(),
         "config" => settings::config_command(&args[1..]),
         "notify" => settings::notify_command(&args[1..]),
+        "update" => update_version(&args[1..]),
         "status" => status(),
         "doctor" => doctor(),
         "test" => test_login(),
@@ -44,13 +45,22 @@ fn run(args: &[String]) -> Result<(), String> {
         cmd => Err(format!("unknown subcommand: {cmd}; run saspam help")),
     }
 }
+fn update_version(args: &[String]) -> Result<(), String> {
+    root()?;
+    let helper = "/usr/local/lib/saspam/update.sh";
+    if !Path::new(helper).exists() {
+        return Err("Updater is not installed. Install alpha.4 or later with SASPAM disabled and a recovery console before using this command".into());
+    }
+    let result = Command::new("bash").arg(helper).args(args).status().map_err(|e|e.to_string())?;
+    if result.success() { Ok(()) } else { Err(format!("update/downgrade failed with exit status: {result}")) }
+}
 fn help() {
     let lang = settings::current_language();
     let common = "\n  sudo saspam doctor / test / status\n  sudo saspam enable --ack-recovery --ack-tested\n  sudo saspam disable\n  sudo saspam security audit|apply|rollback\n  sudo saspam uninstall --yes";
     if lang == "en" {
-        println!("DisnanaSASPAM v{} | SSH post-authentication approval\n  saspam / saspam menu            Interactive dashboard\n  sudo saspam setup               Initial setup / language\n  sudo saspam config              Partial settings menu\n  sudo saspam config show         Display current settings\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [VALUE]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all{}\nConsole, sudo, su are not modified.",env!("CARGO_PKG_VERSION"),common);
+        println!("DisnanaSASPAM v{} | SSH post-authentication approval\n  saspam / saspam menu            Interactive dashboard\n  sudo saspam setup               Initial setup / language\n  sudo saspam config              Partial settings menu\n  sudo saspam config show         Display current settings\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [VALUE]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\nConsole, sudo, su are not modified.",env!("CARGO_PKG_VERSION"),common);
     } else {
-        println!("DisnanaSASPAM v{} | SSH認証成功後の追加承認\n  saspam / saspam menu            対話形式の管理メニュー\n  sudo saspam setup               初期設定・言語選択\n  sudo saspam config              一部設定だけを変更\n  sudo saspam config show         現在の設定\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [値]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all{}\n物理コンソール・sudo・suは変更しません",env!("CARGO_PKG_VERSION"),common);
+        println!("DisnanaSASPAM v{} | SSH認証成功後の追加承認\n  saspam / saspam menu            対話形式の管理メニュー\n  sudo saspam setup               初期設定・言語選択\n  sudo saspam config              一部設定だけを変更\n  sudo saspam config show         現在の設定\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [値]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\n物理コンソール・sudo・suは変更しません",env!("CARGO_PKG_VERSION"),common);
     }
 }
 fn root() -> Result<(), String> {

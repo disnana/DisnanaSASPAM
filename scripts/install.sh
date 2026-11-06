@@ -51,13 +51,13 @@ printf '%s  %s\n' "$EXPECTED" "$ASSET" | sha256sum -c -
 # Reject absolute paths, traversal, symlinks, devices and unexpected members.
 while IFS= read -r path; do
   case "$path" in
-    saspam|saspamd|pam_saspam.so|bot.py|requirements.txt|saspamd.service|saspam-discord.service|uninstall.sh) ;;
+    saspam|saspamd|pam_saspam.so|bot.py|requirements.txt|saspamd.service|saspam-discord.service|uninstall.sh|update.sh|rollback-upgrade.sh) ;;
     *) echo "Unexpected bundle entry: $path" >&2; exit 1 ;;
   esac
 done < <(tar -tzf "$ASSET")
 if tar -tvzf "$ASSET" | awk '$1 !~ /^-/ {exit 1}'; then :; else echo 'Unsafe archive entry type' >&2; exit 1; fi
 tar -xzf "$ASSET" --no-same-owner
-for file in saspam saspamd pam_saspam.so bot.py requirements.txt saspamd.service saspam-discord.service uninstall.sh; do
+for file in saspam saspamd pam_saspam.so bot.py requirements.txt saspamd.service saspam-discord.service uninstall.sh update.sh rollback-upgrade.sh; do
   [[ -f "$file" && ! -L "$file" ]] || { echo "Missing bundle file: $file" >&2; exit 1; }
 done
 export DEBIAN_FRONTEND=noninteractive
@@ -76,6 +76,11 @@ mv -f /usr/local/lib/security/pam_saspam.so.new /usr/local/lib/security/pam_sasp
 install -m 0644 bot.py /opt/saspam/discord/bot.py
 install -m 0644 requirements.txt /opt/saspam/discord/requirements.txt
 install -m 0755 uninstall.sh /usr/local/lib/saspam/uninstall.sh
+install -m 0755 update.sh /usr/local/lib/saspam/update.sh
+install -m 0755 rollback-upgrade.sh /usr/local/lib/saspam/rollback-upgrade.sh
+install -d -o root -g root -m 0700 /var/lib/saspam
+printf '%s\n' "$TAG" > /var/lib/saspam/installed-version
+chmod 0600 /var/lib/saspam/installed-version
 python3 -m venv /opt/saspam/venv
 /opt/saspam/venv/bin/python -m pip install --disable-pip-version-check --no-input -r /opt/saspam/discord/requirements.txt
 # umask 077 protects secrets, but the isolated Bot needs to run its venv.

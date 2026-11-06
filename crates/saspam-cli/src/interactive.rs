@@ -107,9 +107,9 @@ pub fn main_menu() -> Result<(), String> {
     loop {
         let language = crate::settings::current_language();
         let entries = if language == "en" {
-            vec!["Partial settings / language", "Status", "Test Discord approval", "Test ntfy or Bark", "Diagnostics", "Enable SSH protection", "Disable SSH protection", "Check SSH hardening", "Exit"]
+            vec!["Partial settings / language", "Status", "Test Discord approval", "Test ntfy or Bark", "Diagnostics", "Enable SSH protection", "Disable SSH protection", "Check SSH hardening", "Update / downgrade", "Exit"]
         } else {
-            vec!["部分設定・言語切替", "状態確認", "Discord承認テスト", "ntfy / Bark通知テスト", "診断", "SSH保護を有効化", "SSH保護を解除", "SSH攻撃対策を診断", "終了"]
+            vec!["部分設定・言語切替", "状態確認", "Discord承認テスト", "ntfy / Bark通知テスト", "診断", "SSH保護を有効化", "SSH保護を解除", "SSH攻撃対策を診断", "更新・ダウングレード", "終了"]
         }.into_iter().map(str::to_string).collect::<Vec<_>>();
         let Some(choice) = choose(t(&language,"メインメニュー","Main menu"),&entries,selected,&language)? else { return Ok(()); };
         selected = choice;
@@ -122,6 +122,11 @@ pub fn main_menu() -> Result<(), String> {
             5 => return Err(t(&language,"SSH保護有効化は安全確認後に sudo saspam enable --ack-recovery --ack-tested で実行してください","To enable SSH protection, run sudo saspam enable --ack-recovery --ack-tested after checking your recovery options").into()),
             6 => crate::disable()?,
             7 => crate::security(&["audit".into()])?,
+            8 => {
+                let tag=crate::ask(t(&language,"更新先バージョン（例 v0.1.0-alpha.4）","Target version (e.g. v0.1.0-alpha.4)"),"")?;
+                if tag.is_empty() {continue;}
+                crate::update_version(&["--version".into(), tag])?;
+            }
             _ => return Ok(()),
         }
     }

@@ -10,6 +10,6 @@ rm -f /etc/systemd/system/saspamd.service /etc/systemd/system/saspam-discord.ser
 systemctl daemon-reload
 rm -f /usr/local/bin/saspam /usr/local/bin/saspamd /usr/local/lib/security/pam_saspam.so
 rm -f /opt/saspam/discord/bot.py /opt/saspam/discord/requirements.txt
-rm -f /usr/local/lib/saspam/uninstall.sh
+rm -f /usr/local/lib/saspam/uninstall.sh /usr/local/lib/saspam/update.sh /usr/local/lib/saspam/rollback-upgrade.sh
 echo 'Binaries and services removed. /etc/saspam and journal audit logs intentionally retained.'
 echo 'To purge credentials after reviewing: sudo rm -f /etc/saspam/config.toml /etc/saspam/discord.env'
