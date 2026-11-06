@@ -108,6 +108,26 @@ def embed(req: dict[str, Any], language: str = "ja") -> discord.Embed:
                     value=f"<@{actor}> — {verb}", inline=False)
     e.add_field(name=translate(language, "🖥️ 接続先サーバー", "🖥️ Server"), value=hostname, inline=True)
     e.add_field(name=translate(language, "🌐 接続元IP / ホスト", "🌐 Source IP / Host"), value=remote, inline=True)
+    # Show only OpenSSH's verified auth method categories, never raw key data.
+    auth_labels = {
+        "public_key": ("公開鍵認証", "Public key"),
+        "password": ("パスワード認証", "Password"),
+        "fido": ("FIDO認証", "FIDO security key"),
+        "keyboard_interactive": ("キーボード対話認証", "Keyboard-interactive"),
+        "hostbased": ("ホストベース認証", "Host-based"),
+        "unknown": ("不明（取得不可）", "Unknown (unavailable)"),
+    }
+    auth_methods = req.get("auth_methods") or ["unknown"]
+    if not isinstance(auth_methods, list) or len(auth_methods) > 8:
+        auth_methods = ["unknown"]
+    labels = []
+    for method in auth_methods:
+        ja, en = auth_labels.get(method, auth_labels["unknown"]) if isinstance(method, str) else auth_labels["unknown"]
+        label = translate(language, ja, en)
+        if label not in labels:
+            labels.append(label)
+    e.add_field(name=translate(language, "🔑 SSH一次認証方式", "🔑 SSH authentication method"),
+                value=" + ".join(labels), inline=False)
     created = int(req.get("created_unix", 0))
     expires = int(req.get("expires_unix", 0))
     if created > 0:
