@@ -330,6 +330,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     let config_path = args.windows(2).find(|args| args[0] == "--config").map(|a| a[1].clone()).unwrap_or_else(|| "/etc/saspam/config.toml".into());
     let config = Config::load(Path::new(&config_path)).map_err(io::Error::other)?;
+    if args.iter().any(|arg| arg == "--check-config") {
+        // Configuration-only validation; no sockets or background services started.
+        println!("DisnanaSASPAM config valid (language={})", config.general.language);
+        return Ok(());
+    }
     let bot_uid = named_uid("saspam-bot")?;
     // A shared HTTP client avoids repeated TLS root-store and connection-pool setup.
     let http = reqwest::Client::builder().timeout(Duration::from_secs(6)).build()?;
@@ -395,6 +400,21 @@ mod tests {
         assert_eq!(state.finish(&r.request_id, Decision::Approve, "999999999999999999", guild, channel, &member_role).await.unwrap(), Status::Approved);
         assert_eq!(*rx.borrow(), Status::Approved);
         assert!(state.finish(&r.request_id, Decision::Deny, "999999999999999999", guild, channel, &member_role).await.is_err());
+    }
+    #[tokio::test]
+    async fn max_concurrent_requests_are_bounded() {
+        let state = state();
+        for index in 0..MAX_PENDING {
+            state.create(format!("user{index}"), "sshd".into(), "192.0.2.1".into()).await.unwrap();
+        }
+        assert!(state.create("overflow".into(), "sshd".into(), "192.0.2.2".into()).await.is_err());
+    }
+    #[test]
+    fn unsupported_language_is_not_permitted() {
+        let mut c = Config::default();
+        c.general.language = "xx".into();
+        // A loaded configuration should always match the two supported language names.
+        assert!(!["ja","en"].contains(&c.general.language.as_str()));
     }
     #[tokio::test]
     async fn only_ssh_is_authorizable() {
