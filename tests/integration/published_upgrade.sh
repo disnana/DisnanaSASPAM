@@ -61,6 +61,8 @@ sudo saspam update --version "$TAG" --allow-reinstall --skip-approval-test
 sudo saspam update --rollback
 [[ $(sudo cat /var/lib/saspam/installed-version) == "$TAG" ]] || exit 1
 sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
+# Prove the independent systemd timer restores files after an interrupted update.
+sudo bash tests/integration/watchdog_recovery.sh
 if grep -q pam_saspam.so /etc/pam.d/sshd; then
   echo 'An updater unexpectedly changed the PAM stack' >&2; exit 1;
 fi
