@@ -49,6 +49,21 @@ class StructureTests(unittest.TestCase):
         self.assertIn("--block-new-ssh", upgrade)
         self.assertIn("refusing unsafe firewall changes", upgrade)
 
+    def test_updater_contains_pam_preserving_recovery(self):
+        upgrade=(ROOT / "scripts/update.sh").read_text()
+        recovery=(ROOT / "scripts/rollback-upgrade.sh").read_text()
+        self.assertIn("systemd-run --unit=", upgrade)
+        self.assertIn("flock -n 8", upgrade)
+        self.assertIn("fail closed", upgrade.lower())
+        self.assertNotIn("saspam disable", recovery)
+        self.assertIn("rolling-back:*", recovery)
+
+    def test_release_has_update_recovery_and_published_tests(self):
+        yml=(ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn("update.sh rollback-upgrade.sh",yml)
+        self.assertIn("published_upgrade.sh",yml)
+        self.assertTrue((ROOT / "docs/updates.md").exists())
+
     def test_bot_runs_without_root(self):
         unit = (ROOT / "systemd/saspam-discord.service").read_text()
         self.assertIn("User=saspam-bot", unit)
