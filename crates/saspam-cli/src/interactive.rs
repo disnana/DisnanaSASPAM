@@ -110,6 +110,17 @@ pub fn initial_language(existing: &str) -> Result<String, String> {
     Ok(if choice == 0 { "ja" } else { "en" }.into())
 }
 
+/// Keep command output visible until the operator acknowledges it.
+pub fn pause_result(language: &str) -> Result<(), String> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() { return Ok(()); }
+    print!("\n\x1b[2m{}\x1b[0m",
+        t(language, "Enterでメニューに戻る...", "Press Enter to return to the menu..."));
+    io::stdout().flush().map_err(|e| e.to_string())?;
+    let mut line=String::new();
+    io::stdin().read_line(&mut line).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn main_menu() -> Result<(), String> {
     let mut selected = 0;
     loop {
@@ -119,39 +130,36 @@ pub fn main_menu() -> Result<(), String> {
         } else {
             vec!["部分設定・言語切替", "状態確認", "Discord承認テスト", "ntfy / Bark通知テスト", "診断", "SSH保護を有効化", "SSH保護を解除", "SSH攻撃対策を診断", "更新・ダウングレード", "終了"]
         }.into_iter().map(str::to_string).collect::<Vec<_>>();
-        let Some(choice) = choose(t(&language,"メインメニュー","Main menu"),&entries,selected,&language)? else { return Ok(()); };
-        selected = choice;
-        match choice {
-            0 => crate::settings::config_menu()?,
-            1 => crate::status()?,
-            2 => crate::test_login()?,
-            3 => crate::settings::notify_menu()?,
-            4 => crate::doctor()?,
+        let Some(choice)=choose(t(&language,"メインメニュー","Main menu"),&entries,selected,&language)? else { return Ok(()); };
+        selected=choice;
+        if choice==9 { return Ok(()); }
+        // Never instantly redraw over diagnostics, status or an error message.
+        let result:Result<(),String>=match choice {
+            0 => crate::settings::config_menu(),
+            1 => crate::status(),
+            2 => crate::test_login(),
+            3 => crate::settings::notify_menu(),
+            4 => crate::doctor(),
             5 => {
-                let confirmed = crate::ask_yes(t(&language,
-                    "既存SSHセッションとコンソール復旧手段、直近の承認テスト成功を確認しましたか？ (yes/no)",
-                    "Have you confirmed your open SSH session, console recovery and recent approval test? (yes/no)"))?;
-                if confirmed {
-                    crate::enable(&["enable".into(),"--ack-recovery".into(),"--ack-tested".into()])?;
-                }
+                if crate::ask_yes(t(&language,
+                    "既存SSH接続・コンソール復旧・承認テスト成功を確認しましたか？ (yes/no)",
+                    "Confirm open SSH session, console recovery and successful approval test? (yes/no)"))? {
+                    crate::enable(&["enable".into(), "--ack-recovery".into(), "--ack-tested".into()])
+                } else { Ok(()) }
             }
             6 => {
                 if crate::ask_yes(t(&language,
-                    "SSHのSASPAM保護を解除しますか？ (yes/no)",
-                    "Disable SASPAM SSH protection? (yes/no)"))? { crate::disable()?; }
-            },
-            7 => crate::security(&["audit".into()])?,
-            8 => {
-                let tag=crate::ask(t(&language,"更新先バージョン（例 v0.1.0-alpha.4）","Target version (e.g. v0.1.0-alpha.4)"),"")?;
-                if tag.is_empty() {continue;}
-                if crate::ask_yes(t(&language,
-                    "更新前のテストを完了し、復旧用コンソールを確保していますか？ (yes/no)",
-                    "Completed upgrade checks and confirmed console recovery? (yes/no)"))? {
-                    crate::update_version(&["--version".into(), tag])?;
-                }
+                    "SSHの追加承認を解除しますか？ (yes/no)",
+                    "Disable SASPAM SSH approval? (yes/no)"))? { crate::disable() } else { Ok(()) }
             }
-            _ => return Ok(()),
+            7 => crate::security(&["audit".into()]),
+            8 => crate::update_version(&[]),
+            _ => Ok(()),
+        };
+        if let Err(err)=result {
+            eprintln!("\n\x1b[31m[ERROR]\x1b[0m {err}");
         }
+        if choice!=0 { pause_result(&language)?; }
     }
 }
 
