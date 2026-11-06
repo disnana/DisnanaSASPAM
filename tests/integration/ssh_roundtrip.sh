@@ -86,8 +86,11 @@ AllowUsers saspam-ci
 MaxAuthTries 3
 LogLevel VERBOSE
 EOF
-sudo /usr/sbin/sshd -t -f "$TMP/sshd.conf"
-sudo systemd-run --unit=saspam-sshd-ci --property=Restart=no /usr/sbin/sshd -D -e -f "$TMP/sshd.conf"
+# For the research job, run an independently built, patched upstream sshd on
+# a localhost-only test port. The system sshd package is never replaced.
+SSHD_EXEC="${SASPAM_TEST_SSHD_BIN:-/usr/sbin/sshd}"
+sudo "$SSHD_EXEC" -t -f "$TMP/sshd.conf"
+sudo systemd-run --unit=saspam-sshd-ci --property=Restart=no "$SSHD_EXEC" -D -e -f "$TMP/sshd.conf"
 for _ in $(seq 1 50); do
   if python3 - "$PORT" <<'PY' >/dev/null 2>&1
 import socket,sys
@@ -124,13 +127,13 @@ assert reply["ok"] and not reply["requests"], "Failed primary auth incorrectly c
 PY
 
 echo '== Public key needs approval and must report public_key =='
-sudo python3 tests/integration/decision_bot.py approve --valid-auth public_key,unknown --timeout 15 &
+sudo python3 tests/integration/decision_bot.py approve --valid-auth public_key --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${SSH_BASE[@]}" 'printf APPROVED')
 wait "$BOT_PID"
 [[ "$OUT" == "APPROVED" ]] || { echo "Unexpected key SSH output: $OUT" >&2; exit 1; }
 echo '== Password needs approval and must report password =='
-sudo python3 tests/integration/decision_bot.py approve --valid-auth password,unknown --timeout 15 &
+sudo python3 tests/integration/decision_bot.py approve --valid-auth password --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${PW_BASE[@]}" 'printf APPROVED-PASSWORD')
 wait "$BOT_PID"
