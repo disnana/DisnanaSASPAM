@@ -43,12 +43,19 @@ case "$(uname -m)" in
   *) echo 'Only amd64 and arm64 are supported' >&2; exit 1 ;;
 esac
 CURRENT=$(cat /var/lib/saspam/installed-version 2>/dev/null || :)
+if [[ -n "$CURRENT" && ! "$CURRENT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+  echo 'Unrecognized installed-version; cannot safely order releases' >&2; exit 1
+fi
 if [[ -n "$CURRENT" ]]; then
   if [[ "$TAG" == "$CURRENT" && $REINSTALL -ne 1 ]]; then
     echo 'Already on this version; use --allow-reinstall if intended' >&2; exit 1;
   fi
-  FIRST=$(printf '%s\n' "$TAG" "$CURRENT" | sort -V | head -n 1)
-  if [[ "$FIRST" == "$TAG" && "$TAG" != "$CURRENT" && $DOWNGRADE -ne 1 ]]; then
+  # GNU sort -V by itself puts 1.0.0 before 1.0.0-alpha.1.
+  # Normalize hyphens to tildes for correct SemVer prerelease precedence.
+  TARGET_SEMVER="${TAG/-/~}"
+  CURRENT_SEMVER="${CURRENT/-/~}"
+  FIRST=$(printf '%s\n' "$TARGET_SEMVER" "$CURRENT_SEMVER" | sort -V | head -n 1)
+  if [[ "$FIRST" == "$TARGET_SEMVER" && "$TAG" != "$CURRENT" && $DOWNGRADE -ne 1 ]]; then
     echo 'Downgrade requires --allow-downgrade' >&2; exit 1;
   fi
 fi
