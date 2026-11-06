@@ -9,7 +9,7 @@ pub const BOT_SOCKET: &str = "/run/saspam/bot.sock";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum PamCommand {
-    Authorize { version: u8, user: String, service: String, remote_host: String },
+    Authorize { version: u8, user: String, service: String, remote_host: String, #[serde(default)] auth_methods: Vec<AuthMethod> },
     Probe { version: u8 },
     NotificationTest { version: u8, provider: String },
 }
@@ -28,6 +28,10 @@ pub enum Decision { Approve, Deny }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum AuthMethod { PublicKey, Fido, Password, KeyboardInteractive, Hostbased, Unknown }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Status { Pending, Approved, Denied, Expired }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +39,8 @@ pub struct PendingRequest {
     pub request_id: String,
     pub user: String,
     pub service: String,
+    #[serde(default)]
+    pub auth_methods: Vec<AuthMethod>,
     pub remote_host: String,
     pub server_name: String,
     pub created_unix: u64,
@@ -79,8 +85,13 @@ mod tests {
         assert!(matches!(serde_json::from_str::<PamCommand>(&body).unwrap(), PamCommand::NotificationTest { version, provider } if version == VERSION && provider == "ntfy"));
     }
     #[test]
+    fn missing_optional_method_metadata_is_compatible() {
+        let body = r#"{"action":"authorize","version":2,"user":"ubuntu","service":"sshd","remote_host":"192.0.2.9"}"#;
+        assert!(matches!(serde_json::from_str::<PamCommand>(body).unwrap(), PamCommand::Authorize { auth_methods, .. } if auth_methods.is_empty()));
+    }
+    #[test]
     fn json_protocol_roundtrip() {
-        let value = PamCommand::Authorize { version: VERSION, user:"ubuntu".into(), service:"sshd".into(), remote_host:"192.0.2.50".into() };
+        let value = PamCommand::Authorize { version: VERSION, user:"ubuntu".into(), service:"sshd".into(), remote_host:"192.0.2.50".into(), auth_methods: vec![AuthMethod::PublicKey] };
         let json = serde_json::to_string(&value).unwrap();
         assert!(json.contains("\"action\":\"authorize\""));
         assert!(matches!(serde_json::from_str::<PamCommand>(&json).unwrap(), PamCommand::Authorize{version,..} if version == VERSION));
