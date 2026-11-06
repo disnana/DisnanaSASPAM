@@ -118,18 +118,15 @@ SSH保護中の設定変更はサービスの再起動で一時的に承認要�
 
 ### 認証方式の表示（v1.0.0-beta.2）
 
-**Ubuntu標準のOpenSSHは改造しない方針です**。Ubuntuのセキュリティ更新とSSH復旧を優先するため、カスタムsshdの導入は行いません。標準OpenSSHのPAM accountで認証方式を取得できない場合、Discord承認待ち画面は今も「不明（取得不可）」と表示します。
+**OpenSSH本体は改造・置換しません**。Ubuntu公式パッケージを維持し、セキュリティ更新と復旧手段を優先します
 
-beta.1に付属していた実験用OpenSSHパッチは、beta.2以降のReleaseから除外しました。パッチの本番適用は推奨しません。
+現行のSASPAMは、PAM account段階で認証方式の情報が取得できればDiscord承認待ち画面へ表示します。ただし、Ubuntu 22.04/24.04の標準OpenSSHでは `SSH_AUTH_INFO_0` が空になることを確認しており、実機では引き続き **「不明（取得不可）」** と表示されます。接続を承認する前に鍵の種類を推測しません
 
-**以前の`ssh.py`・`ssh_v2.py`の方式は引き継いでいます**。`tools/ssh_auth_events.py`は`Accepted password`や`Accepted publickey`をログから読み、承認後の認証方式を**別のDiscord監査通知**として送れます。標準OpenSSHの変更は不要で、任意起動のため通常のPAM承認経路には追加のログ読み取り負荷がありません。[使い方](docs/ssh-auth-audit.md)
+**以前渡してもらった `ssh.py` / `ssh_v2.py` のログ監視方式は引き継いでいます**。`tools/ssh_auth_events.py` は `Accepted password` / `Accepted publickey` を監視して、承認後の認証方式を**独立したDiscord監査通知**として送信できます。通常のPAM承認経路への追加I/Oはありません。ツールを明示的に起動する場合のみ、ジャーナル読み取りの負荷が生じます
 
-承認後の検証済み認証方式を**元の承認Embedへ安全に紐づけて更新**する方式は、今後の研究対象であり未実装です。詳細は[認証方式の技術的制約](docs/auth-info-bridge.md)を参照してください。
-,,**注意:** 以前の研究では改造OpenSSHでの事前取得を検証しましたが、beta.2はUbuntu標準OpenSSHをそのまま利用します。承認前に方式が不明なら推測しません。,,未解決の制約とv1.0.0安定版の条件は[認証方式の技術的制約](docs/auth-info-bridge.md)を参照してください。,,
+ベータ.1の別添OpenSSH研究パッチはベータ.2のReleaseから除外しました。承認後のログを、元の承認Embedの**同一SSH接続**へ安全に結び付けて更新する機能はまだ未実装です
 
-Discordの承認Embedには、接続元・ユーザー名に加えて **SSHの一次認証方式** を表示します。OpenSSHのPAM環境 `SSH_AUTH_INFO_0` を読み、公開鍵、パスワード、FIDO鍵、keyboard-interactive、複数方式を区別します。取得できなければ「不明（取得不可）」と表示し、推測はしません
-
-SSH公開鍵の内容・指紋・パスワードは通知に含めません。パーサーの単体テストを追加済み。ただしUbuntu 22.04/24.04の実SSH/PAMテストではOpenSSHからこの情報が空で渡されるため、現状は「不明」と表示されます。確実な認証方式取得とFIDO実機検証は未完了です
+詳しくは[ログ監視の使い方](docs/ssh-auth-audit.md)と[認証方式取得の制約](docs/auth-info-bridge.md)を参照してください
 
 ### SSH認証ログの監査（alpha.6・任意）
 
