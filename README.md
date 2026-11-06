@@ -120,7 +120,11 @@ SSH保護中の設定変更はサービスの再起動で一時的に承認要�
 
 **Ubuntu標準のOpenSSHは改造しない方針です**。Ubuntuのセキュリティ更新とSSH復旧を優先するため、カスタムsshdの導入は行いません。標準OpenSSHのPAM accountで認証方式を取得できない場合、Discord承認待ち画面は今も「不明（取得不可）」と表示します。
 
-beta.1に付属していた実験用OpenSSHパッチは、beta.2以降のReleaseから除外しました。パッチの本番適用は推奨しません。承認後の検証済み認証方式を同じDiscordメッセージに更新する非改造方式は、今後の研究対象であり未実装です。詳細は[認証方式の技術的制約](docs/auth-info-bridge.md)を参照してください。
+beta.1に付属していた実験用OpenSSHパッチは、beta.2以降のReleaseから除外しました。パッチの本番適用は推奨しません。
+
+**以前の`ssh.py`・`ssh_v2.py`の方式は引き継いでいます**。`tools/ssh_auth_events.py`は`Accepted password`や`Accepted publickey`をログから読み、承認後の認証方式を**別のDiscord監査通知**として送れます。標準OpenSSHの変更は不要で、任意起動のため通常のPAM承認経路には追加のログ読み取り負荷がありません。[使い方](docs/ssh-auth-audit.md)
+
+承認後の検証済み認証方式を**元の承認Embedへ安全に紐づけて更新**する方式は、今後の研究対象であり未実装です。詳細は[認証方式の技術的制約](docs/auth-info-bridge.md)を参照してください。
 ,,**注意:** 以前の研究では改造OpenSSHでの事前取得を検証しましたが、beta.2はUbuntu標準OpenSSHをそのまま利用します。承認前に方式が不明なら推測しません。,,未解決の制約とv1.0.0安定版の条件は[認証方式の技術的制約](docs/auth-info-bridge.md)を参照してください。,,
 
 Discordの承認Embedには、接続元・ユーザー名に加えて **SSHの一次認証方式** を表示します。OpenSSHのPAM環境 `SSH_AUTH_INFO_0` を読み、公開鍵、パスワード、FIDO鍵、keyboard-interactive、複数方式を区別します。取得できなければ「不明（取得不可）」と表示し、推測はしません
