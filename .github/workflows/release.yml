@@ -147,6 +147,7 @@ jobs:
           test -x /usr/local/bin/saspamd
           test -f /usr/local/lib/security/pam_saspam.so
           sudo saspam status
+          sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
           ! grep -q pam_saspam.so /etc/pam.d/sshd
           sudo saspam uninstall --yes
           ! test -e /usr/local/lib/security/pam_saspam.so

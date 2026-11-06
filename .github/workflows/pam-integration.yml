@@ -34,6 +34,7 @@ jobs:
         run: |
           sudo bash scripts/install-from-build.sh
           sudo saspam status
+          sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
           ! grep -q 'pam_saspam' /etc/pam.d/sshd
           test -x /usr/local/bin/saspam
           test -f /usr/local/lib/security/pam_saspam.so

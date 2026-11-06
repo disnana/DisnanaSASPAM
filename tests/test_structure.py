@@ -29,6 +29,15 @@ class StructureTests(unittest.TestCase):
         self.assertIn("write_hardening(dest, HARDENING)", cli)
         self.assertNotIn("write_private(dest, HARDENING)", cli)
 
+    def test_venv_exec_permissions_in_both_installers(self):
+        for path in ("scripts/install.sh", "scripts/install-from-build.sh"):
+            data = (ROOT / path).read_text()
+            with self.subTest(path=path):
+                self.assertIn("chown -R root:saspam-bot /opt/saspam/venv", data)
+                self.assertIn("chmod -R u=rwX,g=rX,o= /opt/saspam/venv", data)
+                self.assertIn("runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c", data)
+                self.assertNotIn("chmod -R a+rX /etc/saspam", data)
+
     def test_bot_runs_without_root(self):
         unit = (ROOT / "systemd/saspam-discord.service").read_text()
         self.assertIn("User=saspam-bot", unit)
