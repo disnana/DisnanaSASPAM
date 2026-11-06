@@ -38,6 +38,12 @@ FIDO_KEY_TYPES = {
     "sk-ssh-ed25519@openssh.com": "fido_ed25519_sk",
 }
 SUPPORTED_IDENTIFIERS = frozenset(("sshd", "sshd-session"))
+# The journal _EXE metadata is supplied by systemd (unlike SYSLOG_IDENTIFIER,
+# which another process could forge). Accept only known OpenSSH executable paths.
+TRUSTED_EXECUTABLES = frozenset((
+    "/usr/sbin/sshd", "/usr/local/sbin/sshd",
+    "/usr/lib/openssh/sshd-auth", "/usr/lib/openssh/sshd-session",
+))
 
 
 def classify(method: str, detail: str | None) -> str:
@@ -58,12 +64,15 @@ def parse_line(raw: str) -> dict[str, object] | None:
             source = json.loads(line)
         except (ValueError, TypeError):
             return None
-        if not isinstance(source, dict) or source.get("SYSLOG_IDENTIFIER") not in SUPPORTED_IDENTIFIERS:
+        if (not isinstance(source, dict)
+                or source.get("SYSLOG_IDENTIFIER") not in SUPPORTED_IDENTIFIERS
+                or source.get("_EXE") not in TRUSTED_EXECUTABLES):
             return None
         line = source.get("MESSAGE", "")
         if not isinstance(line, str):
             return None
-        if str(source.get("_PID", "")).isdigit():
+        if (str(source.get("_PID", "")).isdigit()
+                and len(str(source.get("_PID"))) <= 10):
             pid = int(source["_PID"])
     match = ACCEPTED.fullmatch(line)
     if not match:
