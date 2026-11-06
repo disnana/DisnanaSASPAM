@@ -19,7 +19,7 @@ cp -a "$source/was-active-bot" "$TX/was-active-bot"
 printf 'pending\n' > "$TX/state"
 # Register an independent systemd timer, then simulate a partially installed
 # binary while no updater process is running.
-systemd-run --unit="saspam-crash-test-$id" --on-active=5s \
+systemd-run --unit="saspam-crash-test-$id" --on-active=5s --timer-property=AccuracySec=1s \
   /usr/local/lib/saspam/rollback-upgrade.sh "$id" >/dev/null
 install -m 0755 /bin/false /usr/local/bin/saspam.corrupt
 mv -f /usr/local/bin/saspam.corrupt /usr/local/bin/saspam
