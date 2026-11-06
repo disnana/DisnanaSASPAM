@@ -17,7 +17,28 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Install currently published prerelease
+      - name: Check that the matching GitHub Release has been published
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TAG=$(tr -d '\n' < VERSION)
+          URL="https://github.com/disnana/DisnanaSASPAM/releases/download/$TAG/SHA256SUMS"
+          # A VERSION change can trigger this independent smoke job before
+          # Release publish finishes. Do not interpret that 404 as a build bug.
+          ready=0
+          for attempt in $(seq 1 72); do
+            if curl --proto '=https' --tlsv1.2 -fLsS --retry 1 --connect-timeout 5 \
+              --max-time 10 -o /dev/null "$URL" 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          [[ "$ready" == 1 ]] || {
+            echo "Release $TAG was not published by the smoke-test deadline" >&2
+            exit 1
+          }
+      - name: Install currently published version
         shell: bash
         run: |
           set -Eeuo pipefail
