@@ -26,7 +26,7 @@ install -m 0755 "$ROOT/scripts/uninstall.sh" /usr/local/lib/saspam/uninstall.sh
 install -m 0755 "$ROOT/scripts/update.sh" /usr/local/lib/saspam/update.sh
 install -m 0755 "$ROOT/scripts/rollback-upgrade.sh" /usr/local/lib/saspam/rollback-upgrade.sh
 install -d -m 0700 -o root -g root /var/lib/saspam
-printf '%s\n' "v0.1.0-alpha.5" > /var/lib/saspam/installed-version
+printf '%s\n' "$(tr -d '\n' < "$ROOT/VERSION")" > /var/lib/saspam/installed-version
 chmod 0600 /var/lib/saspam/installed-version
 python3 -m venv /opt/saspam/venv
 /opt/saspam/venv/bin/python -m pip install --disable-pip-version-check --no-input -r /opt/saspam/discord/requirements.txt

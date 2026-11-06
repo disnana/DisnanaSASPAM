@@ -135,6 +135,29 @@ BOT_PID=$!
 OUT=$(timeout 26 "${PW_BASE[@]}" 'printf APPROVED-PASSWORD')
 wait "$BOT_PID"
 [[ "$OUT" == "APPROVED-PASSWORD" ]] || { echo "Unexpected password SSH output: $OUT" >&2; exit 1; }
+echo '== Read-only stock OpenSSH Accepted-log classifier (after PAM approval) =='
+# Journal delivery can be asynchronous. Never classify unverified key offers.
+for _ in $(seq 1 20); do
+  sudo journalctl -u saspam-sshd-ci --no-pager -o cat --since '2 minutes ago' >"$TMP/ssh-audit-journal"
+  python3 tools/ssh_auth_events.py --file "$TMP/ssh-audit-journal" >"$TMP/ssh-audit-events"
+  if python3 - "$TMP/ssh-audit-events" <<'PY'
+import json,sys
+rows=[json.loads(row) for row in open(sys.argv[1],encoding='utf-8') if row.strip()]
+methods={row['method'] for row in rows if row.get('user') == 'saspam-ci' and row.get('source_ip') == '127.0.0.1'}
+sys.exit(0 if {'public_key','password'} <= methods else 1)
+PY
+  then break; fi
+  sleep 0.25
+done
+python3 - "$TMP/ssh-audit-events" <<'PY'
+import json,sys
+rows=[json.loads(row) for row in open(sys.argv[1],encoding='utf-8') if row.strip()]
+methods={row['method'] for row in rows if row.get('user') == 'saspam-ci' and row.get('source_ip') == '127.0.0.1'}
+assert {'public_key','password'} <= methods, f'missing verified logged auth methods: {methods}'
+assert all('SHA256' not in str(row) for row in rows), 'key fingerprint leaked into event output'
+print('Read-only audit recognized SSH public-key and password events')
+PY
+
 echo '== Deny prevents session =='
 sudo python3 tests/integration/decision_bot.py deny --timeout 15 &
 BOT_PID=$!

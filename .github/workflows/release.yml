@@ -113,10 +113,16 @@ jobs:
             [[ "$GITHUB_REF_NAME" == "$TAG" ]] || exit 1
           fi
           cd dist
-          sha256sum saspam-*.tar.gz > SHA256SUMS
+          # Separate opt-in audit utility: do not add new members to the core
+          # archive; the existing alpha.5 update/install allowlists must remain
+          # backward-compatible.
+          AUDIT_ASSET="ssh_auth_events-${TAG}.py"
+          cp "../tools/ssh_auth_events.py" "$AUDIT_ASSET"
+          python3 -m py_compile "$AUDIT_ASSET"
+          sha256sum saspam-*.tar.gz "$AUDIT_ASSET" > SHA256SUMS
           args=(--title "DisnanaSASPAM $TAG" --generate-notes)
           if [[ "$TAG" == *-* ]]; then args+=(--prerelease); fi
-          gh release create "$TAG" "${args[@]}" SHA256SUMS saspam-*.tar.gz
+          gh release create "$TAG" "${args[@]}" SHA256SUMS saspam-*.tar.gz "$AUDIT_ASSET"
 
   verify-installer:
     if: github.event_name == 'push'
@@ -148,6 +154,16 @@ jobs:
           test -x /usr/local/bin/saspam
           test -x /usr/local/bin/saspamd
           test -f /usr/local/lib/security/pam_saspam.so
+          # Verify the optional standalone script without enabling a monitor.
+          if [[ "${{ matrix.runner }}" == "ubuntu-24.04" && "${{ matrix.arch }}" == "amd64" ]]; then
+            AUDIT="ssh_auth_events-${TAG}.py"
+            URL="https://github.com/disnana/DisnanaSASPAM/releases/download/${TAG}"
+            curl --proto '=https' --tlsv1.2 -fsSL -o "$AUDIT" "$URL/$AUDIT"
+            curl --proto '=https' --tlsv1.2 -fsSL -o SHA256SUMS "$URL/SHA256SUMS"
+            grep -F "  $AUDIT" SHA256SUMS | sha256sum -c -
+            python3 -m py_compile "$AUDIT"
+            rm -f "$AUDIT" SHA256SUMS
+          fi
           sudo saspam status
           sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
           ! grep -q pam_saspam.so /etc/pam.d/sshd
