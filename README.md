@@ -120,6 +120,9 @@ SSH公開鍵の内容・指紋・パスワードは通知に含めません。�
 
 ### バージョン不要の更新（alpha.5）
 
+**alpha.4からの初回更新**にはまだ自動選択機能がないため、`sudo saspam update --version v0.1.0-alpha.5` を使用してください。alpha.5導入後はバージョン指定なしで更新できます
+
+
 ```bash
 sudo saspam update            # 最近のRelease一覧から選択
 sudo saspam update --list     # 利用可能な版と現在との差を表示
