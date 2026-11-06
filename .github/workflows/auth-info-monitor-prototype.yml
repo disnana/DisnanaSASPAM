@@ -40,12 +40,18 @@ jobs:
           set -Eeuo pipefail
           cd _openssh
           autoreconf -fi
-          ./configure --with-pam --with-privsep-path=/run/sshd             --prefix=/usr/local/saspam-experimental
-          make -j2 sshd
-          test -x ./sshd
+          ./configure --with-pam --with-privsep-path=/run/sshd --prefix=/usr/local/saspam-experimental --libexecdir="$PWD"
+          # OpenSSH 10.x launches the separate sshd-auth and sshd-session executables.
+          make -j2 sshd sshd-auth sshd-session
+          test -x ./sshd && test -x ./sshd-auth && test -x ./sshd-session
       - name: Actual PAM account approved publickey/password classification
         env:
           SASPAM_TEST_SSHD_BIN: ${{ github.workspace }}/_openssh/sshd
         run: |
           echo 'Experimental sshd is limited to a disposable VM localhost port'
           bash tests/integration/ssh_roundtrip.sh
+      - name: Debug experimental SSH unit on failure
+        if: failure()
+        run: |
+          sudo journalctl -u saspam-sshd-ci -u saspamd-ci --no-pager -n 120 || true
+          ls -lh _openssh/sshd* || true
