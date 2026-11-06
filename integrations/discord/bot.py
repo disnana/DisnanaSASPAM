@@ -64,7 +64,7 @@ def save_state(data: dict[str, int]) -> None:
 
 def safe_value(value: Any) -> str:
     """Prevent source-controlled fields from injecting formatting or mentions."""
-    text = str(value if value is not None else "不明").replace("\\n", " ").replace("\\r", " ").strip()[:128]
+    text = str(value if value is not None else "不明").replace("\n", " ").replace("\r", " ").strip()[:128]
     return discord.utils.escape_markdown(discord.utils.escape_mentions(text))
 
 
@@ -89,7 +89,7 @@ def embed(req: dict[str, Any]) -> discord.Embed:
     }
     e = discord.Embed(
         title=titles.get(status, "🛡️ SSHログイン確認"),
-        description=f"{status_line.get(status, '状態不明')}\\n\\n"
+        description=f"{status_line.get(status, '状態不明')}\n\n"
                     f"ユーザー **{user}** が **{remote}** からログインを試みています",
         color=colors.get(status, 0x778899),
     )
