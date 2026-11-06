@@ -31,10 +31,14 @@ jobs:
           set -Eeuo pipefail
           git clone --quiet https://github.com/openssh/openssh-portable.git _openssh
           cd _openssh
-          git checkout --quiet a8c72b842423f0774f542d3c2197247c3dd28d74
-          test "$(git rev-parse HEAD)" = a8c72b842423f0774f542d3c2197247c3dd28d74
-          patch --dry-run -p1 < ../experimental/openssh/V_10_6_P1-saspam-authinfo.patch
-          patch -p1 < ../experimental/openssh/V_10_6_P1-saspam-authinfo.patch
+          git checkout --quiet 0351d353099d1dcd75ac456720dd14fd90ad1cfb
+          test "$(git rev-parse HEAD)" = 0351d353099d1dcd75ac456720dd14fd90ad1cfb
+          patch --dry-run -p1 < ../experimental/openssh/V_10_6_P2-saspam-authinfo.patch
+          patch -p1 < ../experimental/openssh/V_10_6_P2-saspam-authinfo.patch
+      - name: Verify upstream is OpenSSH 10.6p2 with security workaround
+        run: |
+          grep -F '#define SSH_PORTABLE' _openssh/version.h | grep -Fq '"p2"'
+          grep -Fq 'MIN_PASSWORD_HASH_LEN' _openssh/auth-passwd.c
       - name: Build patched sshd for localhost-only testing
         run: |
           set -Eeuo pipefail
