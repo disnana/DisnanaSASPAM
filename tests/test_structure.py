@@ -54,7 +54,9 @@ class StructureTests(unittest.TestCase):
         recovery=(ROOT / "scripts/rollback-upgrade.sh").read_text()
         self.assertIn("systemd-run --unit=", upgrade)
         self.assertIn("flock -n 8", upgrade)
-        self.assertIn("fail closed", upgrade.lower())
+        self.assertIn("PAM_GATED=0", upgrade)
+        self.assertIn("systemctl stop saspam-discord.service saspamd.service", upgrade)
+        self.assertNotIn("sudo saspam disable", upgrade)
         self.assertNotIn("saspam disable", recovery)
         self.assertIn("rolling-back:*", recovery)
 
