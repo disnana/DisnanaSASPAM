@@ -2,6 +2,7 @@
 [general]
 server_name = "example-server"
 timeout_seconds = 60
+language = "ja" # or "en", also used for Discord and push notifications
 
 [discord]
 enabled = true

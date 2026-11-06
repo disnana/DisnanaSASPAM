@@ -44,6 +44,6 @@ jobs:
       - name: Syntax checks
         run: |
           python3 -m py_compile integrations/discord/bot.py
-          bash -n scripts/install.sh scripts/install-from-build.sh scripts/uninstall.sh
+          bash -n scripts/install.sh scripts/install-from-build.sh scripts/uninstall.sh scripts/update.sh scripts/rollback-upgrade.sh
       - name: Static scope regression checks
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v

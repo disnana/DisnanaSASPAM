@@ -16,6 +16,17 @@ class DiscordViewTests(unittest.TestCase):
         self.assertTrue(view.is_persistent())
         self.assertEqual({item.label for item in view.children}, {"承認", "拒否"})
 
+    def test_english_buttons_and_embed(self):
+        view = RequestView("00000000-0000-0000-0000-000000000003", GUILD, CHANNEL, ROLES, language="en")
+        self.assertEqual({item.label for item in view.children}, {"Approve", "Deny"})
+        req = {
+            "request_id": "00000000-0000-0000-0000-000000000003",
+            "user": "ubuntu", "remote_host": "192.0.2.1", "server_name": "example-host",
+            "created_unix": 1793891000, "expires_unix": 1793891060, "status": "pending",
+        }
+        self.assertIn("SSH Login Approval", embed(req, "en").title)
+        self.assertIn("SSHログイン承認", embed(req, "ja").title)
+
     def test_completed_view_is_disabled(self):
         view = RequestView("00000000-0000-0000-0000-000000000002", GUILD, CHANNEL, ROLES, done=True)
         self.assertTrue(all(item.disabled for item in view.children))

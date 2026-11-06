@@ -23,6 +23,11 @@ install -m 0644 "$ROOT/target/release/libpam_saspam.so" /usr/local/lib/security/
 install -m 0644 "$ROOT/integrations/discord/bot.py" /opt/saspam/discord/bot.py
 install -m 0644 "$ROOT/integrations/discord/requirements.txt" /opt/saspam/discord/requirements.txt
 install -m 0755 "$ROOT/scripts/uninstall.sh" /usr/local/lib/saspam/uninstall.sh
+install -m 0755 "$ROOT/scripts/update.sh" /usr/local/lib/saspam/update.sh
+install -m 0755 "$ROOT/scripts/rollback-upgrade.sh" /usr/local/lib/saspam/rollback-upgrade.sh
+install -d -m 0700 -o root -g root /var/lib/saspam
+printf '%s\n' "v0.1.0-alpha.4" > /var/lib/saspam/installed-version
+chmod 0600 /var/lib/saspam/installed-version
 python3 -m venv /opt/saspam/venv
 /opt/saspam/venv/bin/python -m pip install --disable-pip-version-check --no-input -r /opt/saspam/discord/requirements.txt
 # umask 077 protects secrets, but the isolated Bot needs to run its venv.

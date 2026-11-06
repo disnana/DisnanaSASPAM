@@ -1,9 +1,11 @@
 //! Administrative CLI: only the sshd PAM stack is modified.
+mod interactive;
+mod settings;
 use saspam_protocol::{PamCommand, Reply, PAM_SOCKET, VERSION};
 use std::{
     env,
     fs::{self, OpenOptions},
-    io::{self, BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, IsTerminal, Write},
     os::unix::{fs::{MetadataExt, PermissionsExt, OpenOptionsExt}, net::UnixStream},
     path::{Path, PathBuf},
     process::{Command, ExitCode},
@@ -25,9 +27,14 @@ fn main() -> ExitCode {
     }
 }
 fn run(args: &[String]) -> Result<(), String> {
+    if args.is_empty() && io::stdin().is_terminal() { return interactive::main_menu(); }
     match args.first().map(String::as_str).unwrap_or("help") {
         "help" | "--help" | "-h" => { help(); Ok(()) }
         "setup" => setup(),
+        "menu" => interactive::main_menu(),
+        "config" => settings::config_command(&args[1..]),
+        "notify" => settings::notify_command(&args[1..]),
+        "update" => update_version(&args[1..]),
         "status" => status(),
         "doctor" => doctor(),
         "test" => test_login(),
@@ -38,13 +45,31 @@ fn run(args: &[String]) -> Result<(), String> {
         cmd => Err(format!("unknown subcommand: {cmd}; run saspam help")),
     }
 }
+fn update_version(args: &[String]) -> Result<(), String> {
+    root()?;
+    let helper = "/usr/local/lib/saspam/update.sh";
+    if !Path::new(helper).exists() {
+        return Err("Updater is not installed. Install alpha.4 or later with SASPAM disabled and a recovery console before using this command".into());
+    }
+    let result = Command::new("bash").arg(helper).args(args).status().map_err(|e|e.to_string())?;
+    if result.success() { Ok(()) } else { Err(format!("update/downgrade failed with exit status: {result}")) }
+}
 fn help() {
-    println!("DisnanaSASPAM v{} | SSH post-authentication approval\n\n  sudo saspam setup                 Configure Discord and optional push alerts\n  sudo saspam doctor                Check SSH, daemon, PAM and Bot\n  sudo saspam test                  Real approval round-trip without changing PAM\n  sudo saspam enable --ack-recovery --ack-tested\n  sudo saspam disable               Remove only SASPAM's PAM line\n  sudo saspam status\n  sudo saspam security audit\n  sudo saspam security apply --ack-recovery\n  sudo saspam security rollback\n  sudo saspam uninstall --yes\n\nNo console, sudo or su PAM stacks are modified.", env!("CARGO_PKG_VERSION"));
+    let lang = settings::current_language();
+    let common = "\n  sudo saspam doctor / test / status\n  sudo saspam enable --ack-recovery --ack-tested\n  sudo saspam disable\n  sudo saspam security audit|apply|rollback\n  sudo saspam uninstall --yes";
+    if lang == "en" {
+        println!("DisnanaSASPAM v{} | SSH post-authentication approval\n  saspam / saspam menu            Interactive dashboard\n  sudo saspam setup               Initial setup / language\n  sudo saspam config              Partial settings menu\n  sudo saspam config show         Display current settings\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [VALUE]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\nConsole, sudo, su are not modified.",env!("CARGO_PKG_VERSION"),common);
+    } else {
+        println!("DisnanaSASPAM v{} | SSH認証成功後の追加承認\n  saspam / saspam menu            対話形式の管理メニュー\n  sudo saspam setup               初期設定・言語選択\n  sudo saspam config              一部設定だけを変更\n  sudo saspam config show         現在の設定\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [値]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\n物理コンソール・sudo・suは変更しません",env!("CARGO_PKG_VERSION"),common);
+    }
+}
+fn tr(ja: &'static str, en: &'static str) -> &'static str {
+    if settings::current_language() == "en" { en } else { ja }
 }
 fn root() -> Result<(), String> {
     let output = Command::new("id").arg("-u").output().map_err(|e| e.to_string())?;
     if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "0" { Ok(()) }
-    else { Err("run as root: sudo saspam ...".into()) }
+    else { Err(tr("root権限が必要です: sudo saspam ...", "Run as root: sudo saspam ...").into()) }
 }
 fn ask(prompt: &str, default: &str) -> Result<String, String> {
     print!("{prompt} [{default}]: ");
@@ -129,24 +154,25 @@ fn setup() -> Result<(), String> {
     if fs::read_to_string(PAM_FILE).unwrap_or_default().contains("pam_saspam.so") {
         return Err("disable SASPAM before changing its configuration; preserve a recovery session".into());
     }
-    println!("SASPAM初期設定 — Discord承認を設定します。ntfyとBarkは通知専用です");
-    let server = ask("Server name", "ubuntu-server")?;
+    let lang=interactive::initial_language(&settings::current_language())?;
+    println!("{}",interactive::t(&lang,"SASPAM初期設定 — Discord承認・通知の設定","SASPAM setup — Discord approval and notifications"));
+    let server = ask(interactive::t(&lang,"サーバー名","Server name"), "ubuntu-server")?;
     if server.len() > 128 || server.trim().is_empty() || server.contains(['\n','\r']) { return Err("invalid server name".into()); }
-    let timeout = ask("Approval timeout (10-180 seconds)", "60")?.parse::<u64>().map_err(|_| "invalid timeout")?;
+    let timeout = ask(interactive::t(&lang,"承認待機秒数 (10-180秒)","Approval timeout (10-180 seconds)"), "60")?.parse::<u64>().map_err(|_| "invalid timeout")?;
     if !(10..=180).contains(&timeout) { return Err("timeout must be 10-180".into()); }
-    let guild = ask("Discord server (guild) ID (numeric)", "")?;
+    let guild = ask(interactive::t(&lang,"DiscordサーバーID（数字）","Discord server/guild ID (numeric)"), "")?;
     if !snowflake(&guild) { return Err("Discord guild ID must be numeric".into()); }
-    let channel = ask("Discord notification channel ID (numeric)", "")?;
+    let channel = ask(interactive::t(&lang,"Discord通知チャンネルID（数字）","Discord notification channel ID (numeric)"), "")?;
     if !snowflake(&channel) { return Err("Discord channel ID must be numeric".into()); }
-    let roles = parse_role_ids(&ask("Allowed Discord role IDs (comma-separated, ANY matching role can approve)", "")?)?;
+    let roles = parse_role_ids(&ask(interactive::t(&lang,"承認ロールID（カンマ区切り・いずれか一致）","Approval role IDs (comma separated, ANY match)"), "")?)?;
     if roles.contains(&guild) { return Err("Discord @everyone role cannot approve SSH logins; choose a dedicated role".into()); }
     let roles_toml = roles.iter().map(|id| toml_string(id)).collect::<Vec<_>>().join(", ");
     let roles_env = roles.join(",");
-    println!("通知時にメンションする対象を選んでください");
-    println!("  1: 承認ロールすべて（推奨）");
-    println!("  2: @everyone（明示的な許可が必要）");
-    println!("  3: メンションなし");
-    let mention_mode = match ask("メンション方式 (1/2/3)", "1")?.as_str() {
+    println!("{}",interactive::t(&lang,"通知時にメンションする対象を選んでください","Select notification mentions"));
+    println!("{}",interactive::t(&lang,"  1: 承認ロールすべて（推奨）","  1: All approval roles (recommended)"));
+    println!("{}",interactive::t(&lang,"  2: @everyone（明示的な許可が必要）","  2: @everyone (explicit confirmation)"));
+    println!("{}",interactive::t(&lang,"  3: メンションなし","  3: No mention"));
+    let mention_mode = match ask(interactive::t(&lang,"メンション方式 (1/2/3)","Mention mode (1/2/3)"), "1")?.as_str() {
         "1" => "roles",
         "2" => {
             println!("警告: @everyoneはこのチャンネルの閲覧可能な全員に通知を送信します");
@@ -158,19 +184,19 @@ fn setup() -> Result<(), String> {
         "3" => "none",
         _ => return Err("メンション方式は1, 2, 3から選択してください".into()),
     };
-    let token = rpassword::prompt_password("Discord Bot Token (hidden): ").map_err(|e| e.to_string())?;
+    let token = rpassword::prompt_password(interactive::t(&lang,"Discord Botトークン（非表示）: ","Discord Bot Token (hidden): ")).map_err(|e| e.to_string())?;
     if token.len() < 30 || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_') { return Err("invalid Discord Bot token format".into()); }
-    let ntfy = ask_yes("Enable ntfy notification alerts? (yes/no)")?;
+    let ntfy = ask_yes(interactive::t(&lang,"ntfy通知を有効にしますか？ (yes/no)","Enable ntfy notifications? (yes/no)"))?;
     let mut ntfy_topic = String::new();
     if ntfy {
-        ntfy_topic = ask("ntfy topic (use >=24 random characters)", "")?;
+        ntfy_topic = ask(interactive::t(&lang,"ntfyトピック（24文字以上）","ntfy topic (>=24 random characters)"), "")?;
         if !(24..=64).contains(&ntfy_topic.len()) || !ntfy_topic.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_') { return Err("ntfy topic must be 24-64 letters/digits/_/-".into()); }
     }
-    let bark = ask_yes("Enable Bark notification alerts? (yes/no)")?;
-    let bark_key = if bark { rpassword::prompt_password("Bark device key (hidden): ").map_err(|e| e.to_string())? } else { String::new() };
+    let bark = ask_yes(interactive::t(&lang,"Bark通知を有効にしますか？ (yes/no)","Enable Bark notifications? (yes/no)"))?;
+    let bark_key = if bark { rpassword::prompt_password(interactive::t(&lang,"Barkデバイスキー（非表示）: ","Bark device key (hidden): ")).map_err(|e| e.to_string())? } else { String::new() };
     if bark && (bark_key.is_empty() || bark_key.contains(['\n','\r','\"'])) { return Err("invalid Bark device key".into()); }
-    let config = format!("# Owned by root. Do not commit this file.\n[general]\nserver_name = {}\ntimeout_seconds = {}\n\n[discord]\nenabled = true\nguild_id = {}\nchannel_id = {}\nallowed_role_ids = [{}]\n\n[ntfy]\nenabled = {}\nserver = \"https://ntfy.sh\"\ntopic = {}\n\n[bark]\nenabled = {}\nserver = \"https://api.day.app\"\ndevice_key = {}\n", toml_string(&server), timeout, toml_string(&guild), toml_string(&channel), roles_toml, ntfy, toml_string(&ntfy_topic), bark, toml_string(&bark_key));
-    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_GUILD_ID={}\nDISCORD_CHANNEL_ID={}\nDISCORD_APPROVAL_ROLE_IDS={}\nDISCORD_MENTION_MODE={}\n", token, guild, channel, roles_env, mention_mode);
+    let config = format!("# Owned by root. Do not commit this file.\n[general]\nserver_name = {}\ntimeout_seconds = {}\nlanguage = {}\n\n[discord]\nenabled = true\nguild_id = {}\nchannel_id = {}\nallowed_role_ids = [{}]\n\n[ntfy]\nenabled = {}\nserver = \"https://ntfy.sh\"\ntopic = {}\n\n[bark]\nenabled = {}\nserver = \"https://api.day.app\"\ndevice_key = {}\n", toml_string(&server), timeout, toml_string(&lang), toml_string(&guild), toml_string(&channel), roles_toml, ntfy, toml_string(&ntfy_topic), bark, toml_string(&bark_key));
+    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_GUILD_ID={}\nDISCORD_CHANNEL_ID={}\nDISCORD_APPROVAL_ROLE_IDS={}\nDISCORD_MENTION_MODE={}\nDISCORD_LANGUAGE={}\n", token, guild, channel, roles_env, mention_mode, lang);
     let path = Path::new("/etc/saspam/config.toml");
     if path.exists() { fs::copy(path, "/etc/saspam/config.toml.bak").map_err(|e| e.to_string())?; }
     write_private(path, &config)?;
@@ -180,7 +206,7 @@ fn setup() -> Result<(), String> {
     if !result.success() { return Err("configuration saved but service startup failed; run journalctl -u saspamd -u saspam-discord".into()); }
     let restart = Command::new("systemctl").args(["restart", "saspamd.service", "saspam-discord.service"]).status().map_err(|e| e.to_string())?;
     if !restart.success() { return Err("services failed to restart with new configuration".into()); }
-    println!("Services started. Next: sudo saspam doctor && sudo saspam test (no PAM change yet)");
+    println!("{}",interactive::t(&lang,"✓ 設定完了。次は sudo saspam doctor と sudo saspam test を実行してください","✓ Setup complete. Next run sudo saspam doctor && sudo saspam test"));
     Ok(())
 }
 fn probe() -> Result<(), String> {
@@ -208,26 +234,27 @@ fn service_active(name: &str) -> bool {
 }
 fn doctor() -> Result<(), String> {
     root()?;
-    println!("DisnanaSASPAM doctor");
+    let lang = settings::current_language();
+    println!("{}",interactive::t(&lang,"DisnanaSASPAM 診断","DisnanaSASPAM doctor"));
     sshd_check(&["-t"])?;
-    println!("[OK] sshd syntax");
-    if sshd_setting("usepam")?.trim() != "yes" { return Err("sshd UsePAM is not yes; account hook will not run".into()); }
-    println!("[OK] UsePAM=yes (verify host-specific Match blocks separately)");
-    if !configured() { return Err("run sudo saspam setup first".into()); }
-    println!("[OK] config and Discord env exist");
+    println!("[OK] {}",tr("sshdの構文は正常","sshd syntax valid"));
+    if sshd_setting("usepam")?.trim() != "yes" { return Err(tr("UsePAM=yesが必要です。PAM認証ゲートが実行されません","UsePAM=yes is required for the SSH account hook").into()); }
+    println!("[OK] {}",tr("UsePAM=yes（Match設定は別途確認してください）","UsePAM=yes (verify host-specific Match blocks separately)"));
+    if !configured() { return Err(tr("先に sudo saspam setup を実行してください","Run sudo saspam setup first").into()); }
+    println!("[OK] {}",tr("設定ファイルとDiscord認証情報があります","configuration and Discord environment found"));
     if !Path::new(PAM_MODULE).exists() { return Err(format!("PAM module missing: {PAM_MODULE}")); }
-    println!("[OK] PAM module installed");
+    println!("[OK] {}",tr("PAMモジュールが配置されています","PAM module installed"));
     probe()?;
-    println!("[OK] daemon IPC");
+    println!("[OK] {}",tr("認証デーモンのIPC正常","daemon IPC working"));
     if !service_active("saspam-discord") { return Err("Discord Botが停止しています。systemctl status saspam-discord --no-pager -l / journalctl -u saspam-discord -n 80 で確認してください（SSH保護は有効化しないでください）".into()); }
-    println!("[OK] Discord Bot service active (not a substitute for an approval test)");
+    println!("[OK] {}",tr("Discord Bot稼働中（承認テストは別途必要）","Discord Bot active (test approval separately)"));
     Ok(())
 }
 fn status() -> Result<(), String> {
-    println!("SASPAM PAM enabled: {}", fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l == MARKER));
-    println!("saspamd active: {}", service_active("saspamd"));
-    println!("Discord Bot active: {}", service_active("saspam-discord"));
-    println!("Config present: {}", configured());
+    println!("{}: {}",tr("SSHのPAM保護","SSH PAM protection enabled"), fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l == MARKER));
+    println!("{}: {}",tr("認証デーモン稼働中","saspamd active"), service_active("saspamd"));
+    println!("{}: {}",tr("Discord Bot稼働中","Discord Bot active"), service_active("saspam-discord"));
+    println!("{}: {}",tr("設定ファイル","Configuration present"), configured());
     Ok(())
 }
 fn test_login() -> Result<(), String> {
@@ -235,8 +262,8 @@ fn test_login() -> Result<(), String> {
     // Do not hang waiting for Discord when the Bot has not started.
     doctor()?;
     let user = env::var("SUDO_USER").unwrap_or_else(|_| "root".into());
-    println!("Discord承認テストを開始します（PAM設定は変更しません）");
-    println!("Discordの承認メッセージから「承認」または「拒否」を選んでください");
+    println!("{}",tr("Discord承認テストを開始します（PAM設定は変更しません）","Testing Discord approval without changing PAM"));
+    println!("{}",tr("Discordの承認メッセージから「承認」または「拒否」を選んでください","Choose Approve or Deny in the Discord message"));
     let mut stream = UnixStream::connect(PAM_SOCKET).map_err(|e| e.to_string())?;
     stream.set_read_timeout(Some(Duration::from_secs(195))).map_err(|e| e.to_string())?;
     let cmd = PamCommand::Authorize {version:VERSION, user, service:"sshd".into(), remote_host:"SASPAM-CLI-TEST".into()};
@@ -246,19 +273,19 @@ fn test_login() -> Result<(), String> {
     let reply: Reply = serde_json::from_str(&buf).map_err(|e|e.to_string())?;
     if reply.ok && reply.status == Some(saspam_protocol::Status::Approved) {
         write_private(Path::new(LAST_TEST), "passed\n")?;
-        println!("[OK] Approval delivered to PAM gate (receipt valid 15 minutes)");
+        println!("[OK] {}",tr("承認成功（15分以内に保護の有効化が可能です）","Approval succeeded (valid for 15 minutes)"));
         Ok(())
     } else { Err(format!("test not approved: {:?} {:?}", reply.status, reply.error)) }
 }
 fn enable(args: &[String]) -> Result<(), String> {
     root()?;
     if !args.iter().any(|x|x=="--ack-recovery") || !args.iter().any(|x|x=="--ack-tested") {
-        return Err("complete a test and confirm console/SSH recovery; then use --ack-recovery --ack-tested".into());
+        return Err(tr("まず承認テストと復旧手段を確認し、--ack-recovery --ack-tested を指定してください","Complete approval test and confirm recovery; use --ack-recovery --ack-tested").into());
     }
     doctor()?;
-    if !recent_approval_test() { return Err("no successful approval test within 15 minutes of current config; run sudo saspam test".into()); }
+    if !recent_approval_test() { return Err(tr("現在の設定で15分以内に承認テスト成功がありません。sudo saspam test を実行してください","No successful approval test within 15 minutes; run sudo saspam test").into()); }
     let src = fs::read_to_string(PAM_FILE).map_err(|e|e.to_string())?;
-    if src.lines().any(|l|l == MARKER) { println!("SASPAM already enabled"); return Ok(()); }
+    if src.lines().any(|l|l == MARKER) { println!("{}",tr("SASPAMはすでに有効です","SASPAM is already enabled")); return Ok(()); }
     if src.contains("pam_saspam.so") { return Err("unknown pre-existing SASPAM PAM entry; manual review required".into()); }
     let mut lines: Vec<String> = src.lines().map(str::to_owned).collect();
     let pos = lines.iter().position(|l| { let t=l.trim(); t.starts_with("account ") || t.starts_with("@include common-account") }).ok_or("cannot identify PAM account stack; aborting")?;
@@ -270,7 +297,7 @@ fn enable(args: &[String]) -> Result<(), String> {
     write_pam(&revised)?;
     // sshd -t does not validate PAM semantics; manual SSH test is still required.
     if let Err(e) = sshd_check(&["-t"]) { write_pam(&src)?; return Err(e); }
-    println!("SASPAM enabled for SSH ONLY. Keep current session; verify a NEW SSH login before disconnecting.");
+    println!("{}",tr("SSH限定で保護を有効化しました。既存接続を維持し、別接続からの認証を確認してください","SASPAM enabled for SSH only. Keep your existing session and test a new SSH login"));
     Ok(())
 }
 fn disable() -> Result<(), String> {
@@ -282,10 +309,10 @@ fn disable() -> Result<(), String> {
         if line == MARKER { n += 1; continue; }
         result.push_str(line); result.push('\n');
     }
-    if n == 0 { println!("SASPAM PAM hook already absent"); return Ok(()); }
+    if n == 0 { println!("{}",tr("SASPAMはすでに無効です","SASPAM PAM hook is already absent")); return Ok(()); }
     if n != 1 { return Err("multiple PAM hooks found; refusing to change automatically".into()); }
     write_pam(&result)?;
-    println!("Removed SASPAM account hook; other PAM entries left untouched");
+    println!("{}",tr("SSHの追加承認だけを無効化しました。他のPAM設定は変更していません","SASPAM account hook removed; other PAM entries unchanged"));
     Ok(())
 }
 fn reload_ssh() -> Result<(), String> {
@@ -299,8 +326,8 @@ fn security(args: &[String]) -> Result<(), String> {
             for name in ["usepam","passwordauthentication","pubkeyauthentication","permitrootlogin","maxauthtries","logingracetime","maxstartups"] {
                 println!("{name} = {}", sshd_setting(name)?);
             }
-            println!("Fail2ban active: {}", service_active("fail2ban"));
-            println!("Optional safeguards are NEVER enabled automatically.");
+            println!("{}: {}",tr("Fail2ban稼働","Fail2ban active"), service_active("fail2ban"));
+            println!("{}",tr("任意のSSH対策は自動で適用されません","Optional SSH safeguards are never applied automatically"));
             Ok(())
         }
         "apply" => {

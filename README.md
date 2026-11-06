@@ -2,7 +2,7 @@
 
 **Disnana Simple Advanced Security PAM** — SSH認証に成功した**後**、Discordで承認してからログインさせる、Ubuntu向けの軽量PAMゲートです。
 
-> **Status: v0.1.0-alpha.3 / developer preview.** 未監査のAlpha版です。Ubuntu CI上でのSSH/PAM統合テストを実施済みですが、FIDOハードウェアとDiscord本番APIを使ったE2Eテストは未実施です。本番SSHに組み込む前に隔離VMと復旧手段を用意してください。
+> **Status: v0.1.0-alpha.4 / developer preview.** 未監査のAlpha版です。Ubuntu CI上でのSSH/PAM統合テストを実施済みですが、FIDOハードウェアとDiscord本番APIを使ったE2Eテストは未実施です。本番SSHに組み込む前に隔離VMと復旧手段を用意してください。
 
 ## 特徴
 
@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/
 **プレリリース版をテスト用Ubuntuに導入する場合（Release公開後）**:
 
 ~~~bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.3
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.4
 ~~~
 
 このコマンドもインストールしただけではPAMを有効化しません。正式な安定版のReleaseがまだない間は、バージョン省略のワンコマンドは安全のため失敗します。**Alphaは本番サーバーでの使用を推奨しません。**
@@ -133,6 +133,42 @@ sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; pr
 旧インストーラーは`umask 077`でvenvを作り、非rootのBotから`203/EXEC Permission denied`が起こることがありました。新インストーラーでは**Python仮想環境のみをroot:saspam-botグループから実行可能**にし、インストール時にBotユーザーで実行テストします。`/etc/saspam`内の秘密情報はroot専用のままです
 
 **既に保護を有効化しているホストでは、復旧用コンソールとSSHセッションを残し、必ず `sudo saspam disable` の後に更新してください。** 新しいAlpha版を導入しても自動でPAMを有効化しません
+
+## 操作メニュー・部分設定・言語切替（alpha.4）
+
+初回`saspam setup`で日本語またはEnglishを選ぶと、管理CLI、Discord Bot、Bark・ntfyの通知で同じ言語を使用します
+
+```bash
+sudo saspam                     # TestDisk風メニュー (↑↓・Enter/Space・Esc)
+sudo saspam config              # 言語、通知先、権限などを個別変更
+sudo saspam config show         # 認証情報を隠して設定表示
+sudo saspam config set language en
+sudo saspam config set language ja
+sudo saspam config set mentions roles
+sudo saspam config set timeout 60
+sudo saspam config set ntfy topic --generate
+sudo saspam config set ntfy on
+sudo saspam config set bark key # 秘密キーを非表示入力
+sudo saspam config set bark on
+sudo saspam notify test ntfy
+sudo saspam notify test bark
+sudo saspam notify test all
+```
+
+Bark・ntfyは**通知専用**で、ログインの承認操作はDiscordで行います。SSH保護が有効な場合、設定変更に伴う再起動で承認待ちが失敗する可能性があるため、明示的な確認が必要です
+
+## 更新・ダウングレード・自動復旧
+
+```bash
+sudo saspam update --version v0.1.0-alpha.4 --dry-run
+sudo saspam update --version v0.1.0-alpha.4
+sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
+sudo saspam update --rollback
+```
+
+更新は旧版バックアップ、新版検証、サービス切替、Discord承認テスト、確定の順です。異常終了時はsystemd復旧タイマーが旧版への復帰を試みます。**PAM保護は更新中も解除せずFail Closedを維持**します。`--block-new-ssh`は安全性検証中で、現状は指定してもエラー終了します
+
+初めてAlpha.3からAlpha.4へ移行する場合だけ、旧版に更新機能がないため、コンソールと既存SSHセッションを確保して`saspam disable`してからインストーラーを実行してください。詳細は[更新・復旧ガイド](docs/updates.md)を参照
 
 ### よく使うコマンド
 

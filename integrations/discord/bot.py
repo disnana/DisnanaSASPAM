@@ -68,46 +68,58 @@ def safe_value(value: Any) -> str:
     return discord.utils.escape_markdown(discord.utils.escape_mentions(text))
 
 
-def embed(req: dict[str, Any]) -> discord.Embed:
-    """Compact Japanese status card inspired by the original Disnana SSH embeds."""
+def translate(language: str, japanese: str, english: str) -> str:
+    return english if language == "en" else japanese
+
+
+def embed(req: dict[str, Any], language: str = "ja") -> discord.Embed:
+    """Compact Japanese/English status card without leaking token or key data."""
     status = req.get("status", "pending")
     colors = {"pending": 0xE3A008, "approved": 0x2ECC71, "denied": 0xE74C3C, "expired": 0x778899}
     titles = {
-        "pending": "🔐 SSHログイン承認リクエスト",
-        "approved": "✅ SSHログインを承認しました",
-        "denied": "⛔ SSHログインを拒否しました",
-        "expired": "⏰ SSHログイン承認がタイムアウトしました",
+        "pending": ("🔐 SSHログイン承認リクエスト", "🔐 SSH Login Approval"),
+        "approved": ("✅ SSHログインを承認しました", "✅ SSH Login Approved"),
+        "denied": ("⛔ SSHログインを拒否しました", "⛔ SSH Login Denied"),
+        "expired": ("⏰ SSHログイン承認がタイムアウトしました", "⏰ SSH Approval Timed Out"),
     }
+    descriptions = {
+        "pending": ("**承認待ち** — SSHの一次認証に成功した接続があります", "**Pending** — SSH primary authentication succeeded"),
+        "approved": ("**承認済み** — PAMがこのログインを許可しました", "**Approved** — PAM approved this login"),
+        "denied": ("**拒否済み** — このログインは許可されません", "**Denied** — This login was rejected"),
+        "expired": ("**期限切れ** — 承認されなかったためログインを拒否しました", "**Expired** — No approval was received"),
+    }
+    title_ja, title_en = titles.get(status, ("🛡️ SSHログイン確認", "🛡️ SSH Login"))
+    desc_ja, desc_en = descriptions.get(status, ("状態不明", "Unknown status"))
     user = safe_value(req.get("user"))
     remote = safe_value(req.get("remote_host"))
     hostname = safe_value(req.get("server_name"))
-    status_line = {
-        "pending": "**承認待ち** — SSHの一次認証に成功した接続があります",
-        "approved": "**承認済み** — PAMがこのログインを許可しました",
-        "denied": "**拒否済み** — このログインは許可されません",
-        "expired": "**期限切れ** — 承認されなかったためログインを拒否しました",
-    }
     e = discord.Embed(
-        title=titles.get(status, "🛡️ SSHログイン確認"),
-        description=f"{status_line.get(status, '状態不明')}\n\n"
-                    f"ユーザー **{user}** が **{remote}** からログインを試みています",
+        title=translate(language, title_ja, title_en),
+        description=translate(language, desc_ja, desc_en) + "\n\n" +
+                    translate(language, f"ユーザー **{user}** が **{remote}** からログインを試みています",
+                              f"User **{user}** requested access from **{remote}**"),
         color=colors.get(status, 0x778899),
     )
     actor = str(req.get("actor_id") or "")
     if status in ("approved", "denied") and actor.isascii() and actor.isdecimal() and 15 <= len(actor) <= 22:
-        verb = "承認" if status == "approved" else "拒否"
-        e.add_field(name="操作した人", value=f"<@{actor}> が{verb}", inline=False)
-    e.add_field(name="🖥️ 接続先サーバー", value=hostname, inline=True)
-    e.add_field(name="🌐 接続元IP / ホスト", value=remote, inline=True)
+        verb = translate(language, "承認" if status == "approved" else "拒否",
+                         "Approved" if status == "approved" else "Denied")
+        e.add_field(name=translate(language, "操作した人", "Decision by"),
+                    value=f"<@{actor}> — {verb}", inline=False)
+    e.add_field(name=translate(language, "🖥️ 接続先サーバー", "🖥️ Server"), value=hostname, inline=True)
+    e.add_field(name=translate(language, "🌐 接続元IP / ホスト", "🌐 Source IP / Host"), value=remote, inline=True)
     created = int(req.get("created_unix", 0))
     expires = int(req.get("expires_unix", 0))
     if created > 0:
-        e.add_field(name="📅 要求日時", value=f"<t:{created}:F>", inline=False)
+        e.add_field(name=translate(language, "📅 要求日時", "📅 Requested at"), value=f"<t:{created}:F>", inline=False)
     if status == "pending" and expires > 0:
-        e.add_field(name="⏳ 承認期限", value=f"<t:{expires}:R>（<t:{expires}:T>）", inline=False)
-    e.add_field(name="セッションID", value=f"\u0060{safe_value(req.get('request_id'))}\u0060", inline=False)
-    e.set_footer(text=("DisnanaSASPAM • 未承認ならアクセス拒否" if status == "pending"
-                       else "DisnanaSASPAM • 処理済み"))
+        e.add_field(name=translate(language, "⏳ 承認期限", "⏳ Approval deadline"),
+                    value=f"<t:{expires}:R> (<t:{expires}:T>)", inline=False)
+    e.add_field(name=translate(language, "セッションID", "Session ID"),
+                value=f"\u0060{safe_value(req.get('request_id'))}\u0060", inline=False)
+    e.set_footer(text=translate(language, 
+        "DisnanaSASPAM • 未承認ならアクセス拒否" if status == "pending" else "DisnanaSASPAM • 処理済み",
+        "DisnanaSASPAM • Denied unless approved" if status == "pending" else "DisnanaSASPAM • Completed"))
     return e
 
 
@@ -156,14 +168,15 @@ def parse_role_ids(raw: str) -> frozenset[int]:
 
 
 class RequestView(discord.ui.View):
-    def __init__(self, request_id: str, guild_id: int, channel_id: int, allowed_roles: frozenset[int], done: bool = False):
+    def __init__(self, request_id: str, guild_id: int, channel_id: int, allowed_roles: frozenset[int], done: bool = False, language: str = "ja"):
         super().__init__(timeout=None)
         self.request_id = request_id
+        self.language = language
         self.guild_id = guild_id
         self.channel_id = channel_id
         self.allowed_roles = allowed_roles
-        for decision, label, style in (("approve", "承認", discord.ButtonStyle.success),
-                                       ("deny", "拒否", discord.ButtonStyle.danger)):
+        for decision, label, style in (("approve", translate(language, "承認", "Approve"), discord.ButtonStyle.success),
+                                       ("deny", translate(language, "拒否", "Deny"), discord.ButtonStyle.danger)):
             button = discord.ui.Button(label=label, style=style,
                                        custom_id=f"saspam:v2:{decision}:{request_id}", disabled=done)
             button.callback = self._callback(decision)
@@ -171,57 +184,61 @@ class RequestView(discord.ui.View):
 
     def _callback(self, decision: str):
         async def action(interaction: discord.Interaction) -> None:
-            # Component interactions contain a guild Member with the roles
-            # supplied by Discord. No privileged Guild Members intent required.
+            # A component message-update defer is a silent ACK. Do not create an
+            # ephemeral reply, progress indicator or Follow-up for this action.
+            await interaction.response.defer(thinking=False)
             if not isinstance(interaction.user, discord.Member):
-                await interaction.response.send_message("Discordサーバーのメンバーである必要があります", ephemeral=True)
+                LOG.warning("Rejected non-member approval interaction")
                 return
             role_ids = {role.id for role in interaction.user.roles}
             if not has_approval_role(
                 interaction.guild_id, interaction.channel_id, role_ids,
                 interaction.permissions.view_channel, self.guild_id, self.channel_id, self.allowed_roles
             ) or not interaction.message or not interaction.client.user or interaction.message.author.id != interaction.client.user.id:
-                await interaction.response.send_message("このSSHログインを承認・拒否する権限がありません", ephemeral=True)
+                LOG.warning("Rejected unauthorized approval interaction for request %s", self.request_id)
                 return
-            await interaction.response.defer(ephemeral=True)
             try:
                 result = await request({"action": "decide", "request_id": self.request_id,
                                         "actor_id": str(interaction.user.id), "decision": decision,
                                         "guild_id": str(interaction.guild_id),
                                         "channel_id": str(interaction.channel_id),
                                         "role_ids": [str(role_id) for role_id in sorted(role_ids)]})
-            except (OSError, ValueError, RuntimeError) as exc:
-                LOG.warning("IPC decision failed: %s", type(exc).__name__)
-                await interaction.followup.send("承認サービスに接続できません。ログインは許可されません", ephemeral=True)
-                return
-            if not result.get("ok"):
-                await interaction.followup.send("このリクエストは処理済み・期限切れ・権限不足のいずれかです", ephemeral=True)
-                return
-            # discord.py View has no disable_all_items() (that API belongs to Pycord).
-            for item in self.children:
-                item.disabled = True
-            req_reply = await request({"action": "get", "request_id": self.request_id})
-            if req_reply.get("ok") and req_reply.get("requests") and interaction.message:
-                await interaction.message.edit(embed=embed(req_reply["requests"][0]), view=self)
-            await interaction.followup.send("承認結果を記録しました", ephemeral=True)
+                if not result.get("ok"):
+                    # Another client may already have approved, denied or expired
+                    # this request. The poller refreshes the original Embed.
+                    LOG.info("Approval request %s already completed or rejected", self.request_id)
+                    return
+                req_reply = await request({"action": "get", "request_id": self.request_id})
+                if req_reply.get("ok") and req_reply.get("requests"):
+                    updated = req_reply["requests"][0]
+                    if updated.get("status") != "pending":
+                        for item in self.children:
+                            item.disabled = True
+                    await interaction.message.edit(embed=embed(updated, self.language), view=self)
+                else:
+                    LOG.warning("Unable to load finalized state for request %s", self.request_id)
+            except (OSError, ValueError, RuntimeError, discord.DiscordException) as exc:
+                # Fail closed: the coordinator remains authoritative. The poller
+                # can still update the original message once it reconnects.
+                LOG.warning("Approval update failed (%s) for request %s", type(exc).__name__, self.request_id)
         return action
 
-
 class SaspamBot(discord.Client):
-    def __init__(self, guild_id: int, channel_id: int, allowed_roles: frozenset[int], mention_mode: str = "none"):
+    def __init__(self, guild_id: int, channel_id: int, allowed_roles: frozenset[int], mention_mode: str = "none", language: str = "ja"):
         intents = discord.Intents.default()
         intents.message_content = False  # No privileged intent or message reading required
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.guild_id = guild_id
         self.channel_id = channel_id
         self.allowed_roles = allowed_roles
+        self.language = language
         self.mention_text, self.notification_mentions = notification_mention(mention_mode, allowed_roles)
         self.messages: dict[str, int] = load_state()
         self.poller: asyncio.Task | None = None
 
     async def setup_hook(self) -> None:
         for req_id, message_id in self.messages.items():
-            self.add_view(RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles), message_id=message_id)
+            self.add_view(RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, language=self.language), message_id=message_id)
         self.poller = asyncio.create_task(self.poll(), name="saspam-poller")
 
     async def close(self) -> None:
@@ -250,8 +267,8 @@ class SaspamBot(discord.Client):
                     if req_id not in self.messages:
                         message = await ch.send(
                             content=self.mention_text,
-                            embed=embed(req),
-                            view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles),
+                            embed=embed(req, self.language),
+                            view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, language=self.language),
                             allowed_mentions=self.notification_mentions,
                         )
                         self.messages[req_id] = message.id
@@ -265,7 +282,7 @@ class SaspamBot(discord.Client):
                         if row["status"] == "pending":
                             continue
                         message = await ch.fetch_message(message_id)
-                        await message.edit(embed=embed(row), view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, done=True))
+                        await message.edit(embed=embed(row, self.language), view=RequestView(req_id, self.guild_id, self.channel_id, self.allowed_roles, done=True, language=self.language))
                     del self.messages[req_id]
                     save_state(self.messages)
             except asyncio.CancelledError:
@@ -284,12 +301,15 @@ def main() -> None:
         allowed_roles = parse_role_ids(os.getenv("DISCORD_APPROVAL_ROLE_IDS", ""))
         # Existing installs without a mention setting remain quiet by default.
         mention_mode = os.getenv("DISCORD_MENTION_MODE", "none")
+        language = os.getenv("DISCORD_LANGUAGE", "ja")
+        if language not in ("ja", "en"):
+            raise ValueError("DISCORD_LANGUAGE must be ja or en")
         notification_mention(mention_mode, allowed_roles)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     if not token or not guild_id or not channel_id or guild_id in allowed_roles:
         raise SystemExit("DISCORD_TOKEN, DISCORD_GUILD_ID, DISCORD_CHANNEL_ID and non-everyone approval roles are required")
-    SaspamBot(guild_id, channel_id, allowed_roles, mention_mode=mention_mode).run(token, log_handler=None)
+    SaspamBot(guild_id, channel_id, allowed_roles, mention_mode=mention_mode, language=language).run(token, log_handler=None)
 
 
 if __name__ == "__main__":

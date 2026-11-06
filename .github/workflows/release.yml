@@ -58,8 +58,10 @@ jobs:
           cp integrations/discord/requirements.txt bundle/requirements.txt
           cp systemd/saspamd.service systemd/saspam-discord.service bundle/
           cp scripts/uninstall.sh bundle/uninstall.sh
+          cp scripts/update.sh bundle/update.sh
+          cp scripts/rollback-upgrade.sh bundle/rollback-upgrade.sh
           tar -czf "dist/saspam-${TAG}-linux-${ARCH}.tar.gz" -C bundle \
-            saspam saspamd pam_saspam.so bot.py requirements.txt saspamd.service saspam-discord.service uninstall.sh
+            saspam saspamd pam_saspam.so bot.py requirements.txt saspamd.service saspam-discord.service uninstall.sh update.sh rollback-upgrade.sh
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.arch }}
@@ -149,6 +151,9 @@ jobs:
           sudo saspam status
           sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
           ! grep -q pam_saspam.so /etc/pam.d/sshd
+          if [[ "${{ matrix.runner }}" == "ubuntu-24.04" && "${{ matrix.arch }}" == "amd64" ]]; then
+            bash tests/integration/published_upgrade.sh
+          fi
           sudo saspam uninstall --yes
           ! test -e /usr/local/lib/security/pam_saspam.so
           ! grep -q pam_saspam.so /etc/pam.d/sshd

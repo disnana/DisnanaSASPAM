@@ -11,6 +11,7 @@ pub const BOT_SOCKET: &str = "/run/saspam/bot.sock";
 pub enum PamCommand {
     Authorize { version: u8, user: String, service: String, remote_host: String },
     Probe { version: u8 },
+    NotificationTest { version: u8, provider: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +71,12 @@ mod tests {
         };
         let data = serde_json::to_string(&value).unwrap();
         assert!(matches!(serde_json::from_str::<BotCommand>(&data).unwrap(), BotCommand::Decide { role_ids, .. } if role_ids.len() == 2));
+    }
+    #[test]
+    fn notification_test_is_versioned() {
+        let cmd = PamCommand::NotificationTest { version: VERSION, provider: "ntfy".into() };
+        let body = serde_json::to_string(&cmd).unwrap();
+        assert!(matches!(serde_json::from_str::<PamCommand>(&body).unwrap(), PamCommand::NotificationTest { version, provider } if version == VERSION && provider == "ntfy"));
     }
     #[test]
     fn json_protocol_roundtrip() {
