@@ -151,6 +151,9 @@ jobs:
           sudo saspam status
           sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
           ! grep -q pam_saspam.so /etc/pam.d/sshd
+          if [[ "${{ matrix.runner }}" == "ubuntu-24.04" && "${{ matrix.arch }}" == "amd64" ]]; then
+            bash tests/integration/published_upgrade.sh
+          fi
           sudo saspam uninstall --yes
           ! test -e /usr/local/lib/security/pam_saspam.so
           ! grep -q pam_saspam.so /etc/pam.d/sshd
