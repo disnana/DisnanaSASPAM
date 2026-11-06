@@ -20,3 +20,11 @@ The integration test builds OpenSSH in an ephemeral GitHub Actions runner and bi
 - Two server-enforced factors (`AuthenticationMethods publickey,password`) must appear in order **before** Discord approval
 - Stock Ubuntu runs still accept **Unknown**; experimental patched OpenSSH tests require exact, non-guessed methods
 - The buffer is process-local to each privileged OpenSSH monitor and bounded at 512 bytes
+
+### I/O and latency constraints (v1 gate)
+
+- The privileged monitor maintains a 512-byte fixed-size, per-SSH-connection method list. Processing is event-driven **only after a verified authentication factor**; no additional file reads, log polling, disk writes, background threads, or network requests are introduced by this patch.
+- The one-time `do_pam_putenv` call immediately before the existing PAM account check is an in-memory metadata transfer, not a new authentication decision.
+- If the metadata buffer fills up or parsing cannot determine a valid method, the display falls back to Unknown **without failing or delaying the login solely because of the display feature**. Original PAM/Discord authorization remains fail-closed.
+- Benchmarks still required: measure per-login CPU time, RSS, syscall counts and p95/p99 authorization latency under simultaneous password, publickey and ECDSA-SK SSH sessions. Any new I/O or significant latency regression is a v1 blocker.
+- Do not automatically deploy a custom sshd binary on Ubuntu hosts. Upstream security updates and rollback support must be preserved.
