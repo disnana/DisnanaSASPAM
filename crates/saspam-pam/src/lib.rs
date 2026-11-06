@@ -52,20 +52,10 @@ fn parse_auth_info(raw: Option<&str>) -> Vec<AuthMethod> {
 fn auth_methods_from_pam(pamh: *mut PamHandle) -> Vec<AuthMethod> {
     const NAME: &[u8] = b"SSH_AUTH_INFO_0\0";
     let ptr = unsafe { pam_getenv(pamh, NAME.as_ptr().cast::<c_char>()) };
-    if ptr.is_null() {
-        if std::env::var_os("SASPAM_AUTH_INFO_DEBUG").is_some() {
-            eprintln!("saspam PAM auth info diagnostic: missing environment entry");
-        }
-        return vec![AuthMethod::Unknown];
-    }
+    if ptr.is_null() { return vec![AuthMethod::Unknown]; }
     let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes();
     if bytes.len() > 8192 { return vec![AuthMethod::Unknown]; }
-    let result = parse_auth_info(std::str::from_utf8(bytes).ok());
-    if std::env::var_os("SASPAM_AUTH_INFO_DEBUG").is_some() {
-        // Never log SSH_AUTH_INFO_0 contents (it may contain SSH public keys).
-        eprintln!("saspam PAM auth info diagnostic: bytes={} methods={:?}", bytes.len(),result);
-    }
-    result
+    parse_auth_info(std::str::from_utf8(bytes).ok())
 }
 
 fn check(pamh: *mut PamHandle) -> c_int {
