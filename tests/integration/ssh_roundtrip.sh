@@ -192,6 +192,45 @@ PY
     echo "MFA SSH failed: $MFA_OUTPUT" >&2; exit 1;
   }
 fi
+if [[ -n "${SASPAM_TEST_SSHD_BIN:-}" ]]; then
+  echo '== Concurrent same-user / same-IP sessions stay isolated in the privileged monitor =='
+  (timeout 26 "${SSH_BASE[@]}" 'printf CONCURRENT-KEY') >"$TMP/concurrent-pub" 2>"$TMP/concurrent-pub.err" &
+  CONCURRENT_PUB_PID=$!
+  (timeout 26 "${PW_BASE[@]}" 'printf CONCURRENT-PASSWORD') >"$TMP/concurrent-pass" 2>"$TMP/concurrent-pass.err" &
+  CONCURRENT_PW_PID=$!
+  sudo python3 - <<'PY'
+import sys,time
+sys.path.insert(0,"tests/integration")
+from decision_bot import call
+deadline=time.monotonic()+15
+while time.monotonic()<deadline:
+    reply=call({"action":"list"})
+    assert reply.get("ok"), reply
+    rows=[r for r in reply["requests"] if r.get("status")=="pending"
+          and r.get("user")=="saspam-ci" and r.get("remote_host")=="127.0.0.1"]
+    if len(rows)==2:
+        factors=sorted(tuple(r.get("auth_methods",[])) for r in rows)
+        assert factors==[("password",),("public_key",)], ("cross-session authentication metadata",factors)
+        for row in rows:
+            result=call({
+                "action":"decide","request_id":row["request_id"],"decision":"approve",
+                "actor_id":"123456789012345678",
+                "guild_id":"111111111111111111",
+                "channel_id":"222222222222222222",
+                "role_ids":["333333333333333333"]
+            })
+            assert result.get("ok"), result
+        print("verified independent password/publickey session metadata with concurrent same-user IP")
+        break
+    time.sleep(.1)
+else:
+    raise AssertionError("two concurrent post-auth PAM requests did not appear")
+PY
+  wait "$CONCURRENT_PUB_PID"
+  wait "$CONCURRENT_PW_PID"
+  [[ "$(cat "$TMP/concurrent-pub")" == CONCURRENT-KEY ]] || exit 1
+  [[ "$(cat "$TMP/concurrent-pass")" == CONCURRENT-PASSWORD ]] || exit 1
+fi
 echo '== Deny prevents session =='
 sudo python3 tests/integration/decision_bot.py deny --timeout 15 &
 BOT_PID=$!
