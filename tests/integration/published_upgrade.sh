@@ -49,6 +49,8 @@ printf '2\n0\n' | sudo saspam menu
 [[ $(sudo cat /var/lib/saspam/installed-version) == "$TAG" ]] || {
   echo 'Installed version is not recorded' >&2; exit 1;
 }
+# Discovery must work without a manually supplied version (GitHub Releases).
+sudo saspam update --list | grep -Fq "$TAG"
 # Basic semantic version gate: do not permit alpha.3 downgrade without explicit consent.
 if sudo saspam update --version v0.1.0-alpha.3 --dry-run >/tmp/saspam-downgrade-test.log 2>&1; then
   echo 'Downgrade was accepted without --allow-downgrade' >&2; exit 1;
