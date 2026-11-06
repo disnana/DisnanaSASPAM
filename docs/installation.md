@@ -59,3 +59,22 @@ sudo bash scripts/install-from-build.sh
 6. 別SSHセッションからログイン成功・拒否・期限切れを確認
 
 Botが停止すると未承認要求は期限切れで拒否されます。Botロールの変更はDiscord側で行えますが、既存の承認メッセージや進行中のセッションは更新・再接続の影響を受けることがあります
+
+## Botの権限と通知メンション（alpha.3）
+
+`saspam setup` は承認用DiscordロールIDをカンマ区切りで受け付け、通知方式は `1: ロール全員` / `2: @everyone` / `3: メンションなし` から選びます。初期値はロール全員で、`@everyone`には明示的な追加確認が必要です。Botにメンションの権限を与える場合は、必要なチャンネルに限定してください
+
+ロールをメンションしても、承認可能なのは設定したロールのいずれかを保持し、Discordサーバー・チャンネル・閲覧権限の検証に通るメンバーだけです。初代版同様の日本語Embed（承認待ち／承認／拒否／期限切れ）と日本語ボタンを使います
+
+## Botが`203/EXEC`で起動しない場合
+
+インストーラーがrootでvenvを作る際、`umask 077`でディレクトリがroot専用になることがありました。alpha.3では専用グループ権限の補正と、非root実行テストをインストール中に行います
+
+```bash
+sudo systemctl status saspam-discord --no-pager -l
+sudo journalctl -u saspam-discord -n 80 --no-pager -o cat
+sudo namei -l /opt/saspam/venv/bin/python
+sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
+```
+
+`saspam test` はPAMを書き換えずにDiscordでの承認を待ちます。Bot停止時は事前チェックで中断します。復旧用コンソールを確認し、**実際にApprove（承認）できた後**でなければ`saspam enable`を実行しないでください

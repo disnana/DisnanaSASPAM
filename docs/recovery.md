@@ -46,3 +46,9 @@ sudo saspam uninstall --yes
 ## v0.1.0-alpha.1からの互換性
 
 新デーモンではGuild ID・Channel ID・Role IDの設定が必須です。旧User ID設定のまま更新するとデーモンは起動せず、PAMはFail Closedでログインを拒否します。**既存の管理セッション／コンソールを保持したまま保護を解除してから**、インストールと`saspam setup`を実行してください。
+
+## Discord Bot実行権限の復旧（203/EXEC）
+
+`systemctl status saspam-discord`で`203/EXEC Permission denied`が出た場合は、`namei -l /opt/saspam/venv/bin/python`でvenv内の権限を確認します。alpha.3のインストーラーは、venvのみroot:saspam-botのグループから実行できるようにし、Botの非root実行テストを行います。`/etc/saspam`のToken等の権限は変更しません
+
+Bot停止時の`saspam test`はPAMを変更せず中断されます。`saspam enable`前にDiscord通知と承認動作を確かめてください
