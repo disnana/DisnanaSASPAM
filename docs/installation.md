@@ -78,3 +78,25 @@ sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; pr
 ```
 
 `saspam test` はPAMを書き換えずにDiscordでの承認を待ちます。Bot停止時は事前チェックで中断します。復旧用コンソールを確認し、**実際にApprove（承認）できた後**でなければ`saspam enable`を実行しないでください
+
+## v0.1.0-alpha.4 の対話設定と通知テスト
+
+初回セットアップで日本語またはEnglishを選びます。Discord、Bark、ntfyのメッセージは同じ言語が既定になります。変更は `sudo saspam config` で個別に設定できます
+
+```bash
+sudo saspam config set language en
+sudo saspam config set language ja
+sudo saspam config set mentions roles
+sudo saspam config set ntfy topic --generate
+sudo saspam config set ntfy on
+sudo saspam notify test ntfy
+sudo saspam config set bark key
+sudo saspam config set bark on
+sudo saspam notify test bark
+```
+
+鍵・BotトークンはCLI引数に渡さないでください。Barkキーは非表示入力を使います
+
+### 初期バージョンからの更新
+
+alpha.3には安全な更新コマンドがないため、復旧手段を確認してPAMを解除してからalpha.4のインストーラーを実行します。alpha.4以降の更新は `sudo saspam update` を利用し、PAMを無効化しない方式です。詳細は[更新ガイド](updates.md)を確認してください
