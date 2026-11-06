@@ -116,7 +116,7 @@ Bark and ntfy providers are external services; consider privacy implications bef
 
 Discord embeds now show the **primary SSH authentication method** based on OpenSSH's PAM `SSH_AUTH_INFO_0` data: Public key, Password, FIDO security key, Keyboard-interactive, or multiple completed methods. If unavailable, the display explicitly says **Unknown** rather than guessing. SSH key material, fingerprints and passwords are never sent to Discord
 
-Public-key and password methods are checked by live sshd CI tests; FIDO classification has unit tests but not hardware validation
+The parser has unit tests, but live SSH/PAM CI on Ubuntu 22.04/24.04 exposed an empty PAM authentication-info string, so these hosts currently show **Unknown**. Reliable method reporting and physical FIDO verification remain unresolved
 
 ### Discover and select Releases without a version number
 
