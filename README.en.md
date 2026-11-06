@@ -4,7 +4,7 @@
 
 **Disnana Simple Advanced Security PAM** adds an explicit Discord approval gate **after successful primary SSH authentication** and before granting an SSH session on Ubuntu. The PAM component, approval coordinator, and management CLI are written in Rust; the Discord adapter runs as an unprivileged Python service.
 
-> **v0.1.0-alpha.5 · Developer preview.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
+> **v0.1.0-alpha.6 · Developer preview.** This project has not passed an independent security audit and is **not recommended for production SSH servers**. GitHub Actions tests real SSH/PAM approval flows on Ubuntu, but real Discord Gateway end-to-end behavior, hardware FIDO, and recovery with an enabled production PAM gate require additional testing. Keep an existing administrative SSH session and an out-of-band console before enabling it.
 
 ## What it does
 
@@ -40,7 +40,7 @@ Supported **test targets:** Ubuntu 22.04 / 24.04 on amd64 or arm64 with systemd 
 For the **currently published alpha**, specify its version explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.5
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.6
 ```
 
 The installer downloads the Release archive and checks the published `SHA256SUMS`. **Installing does not enable the PAM gate.** There is no stable Release yet, so omitting `--version` is not the supported alpha-installation path.
@@ -117,6 +117,12 @@ Bark and ntfy providers are external services; consider privacy implications bef
 Discord embeds now show the **primary SSH authentication method** based on OpenSSH's PAM `SSH_AUTH_INFO_0` data: Public key, Password, FIDO security key, Keyboard-interactive, or multiple completed methods. If unavailable, the display explicitly says **Unknown** rather than guessing. SSH key material, fingerprints and passwords are never sent to Discord
 
 The parser has unit tests, but live SSH/PAM CI on Ubuntu 22.04/24.04 exposed an empty PAM authentication-info string, so these hosts currently show **Unknown**. Reliable method reporting and physical FIDO verification remain unresolved
+
+### Optional OpenSSH authentication log audit (alpha.6)
+
+An independent, read-only [release asset](docs/ssh-auth-audit.md) derived from the operator's earlier SSH log monitor classifies `Accepted password`, `Accepted publickey`, and ECDSA-SK/Ed25519-SK key types without replacing Ubuntu's OpenSSH. It is **opt-in and not installed or started automatically**.
+
+**This does not resolve the pending Discord approval card's Unknown authentication method.** Real Ubuntu SSH/PAM probes found that `Accepted` log records reached the reader only after the approval gate had been released, so no pre-approval method is inferred. Follow [the manual SHA-256 checked procedure](docs/ssh-auth-audit.md).
 
 ### Discover and select Releases without a version number
 

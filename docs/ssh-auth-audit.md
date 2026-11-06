@@ -4,7 +4,7 @@
 
 ## 日本語
 
-これは以前の SSH 認証通知 Python スクリプトをもとに作成した、**SSHログの読み取り専用監査機能**です。**SASPAMの認証可否やDiscordの承認処理には使いません**。現段階では自動インストール、サービス登録、安定版への同梱は行いません。
+これは以前の SSH 認証通知 Python スクリプトをもとに作成した、**SSHログの読み取り専用監査機能**です。**SASPAMの認証可否やDiscordの承認処理には使いません**。Alpha.6では独立したReleaseアセットとして配布しますが、自動インストール、サービス登録、SSH承認システムへの組み込みは行いません。
 
 ### 認証ログの注意点
 
@@ -14,7 +14,18 @@ OpenSSHソースで auth_log の呼び出しが PAM account より前でも、pr
 
 ### 手動で試す
 
-以下はリポジトリのルートで実行します。デフォルトでは外部送信しません。
+ソースチェックアウトに加え、Alpha.6以降はReleaseから単体ファイルを取得できます。配布物と同じReleaseのチェックサムを照合してください（独立した発行者署名ではありません）。
+
+```bash
+TAG=v0.1.0-alpha.6
+BASE="https://github.com/disnana/DisnanaSASPAM/releases/download/$TAG"
+curl --proto '=https' --tlsv1.2 -fsSLO "$BASE/SHA256SUMS"
+curl --proto '=https' --tlsv1.2 -fsSLO "$BASE/ssh_auth_events-$TAG.py"
+grep -F "  ssh_auth_events-$TAG.py" SHA256SUMS | sha256sum -c -
+sudo python3 "ssh_auth_events-$TAG.py" --journal-follow
+```
+
+以下はリポジトリのルートで実行する例です。デフォルトでは外部送信しません。
 
     sudo python3 tools/ssh_auth_events.py --file /var/log/auth.log
     sudo python3 tools/ssh_auth_events.py --journal-follow
@@ -38,7 +49,7 @@ journal JSONを処理する際は、呼び出し元が自由に設定できる S
 
 ## English
 
-This is an **optional, read-only** log audit based on the operator's 2025 Python SSH notification scripts. It is not an SASPAM authorization method and cannot approve or deny any SSH connection. The research script is not installed, started, or released by default.
+This is an **optional, read-only** log audit based on the operator's 2025 Python SSH notification scripts. It is not an SASPAM authorization method and cannot approve or deny any SSH connection. As of alpha.6 the script is published as a separate, checksum-listed optional release asset. It is not installed or started by default.
 
 The [live Ubuntu 22.04/24.04 SSH experiment](https://github.com/disnana/DisnanaSASPAM/actions/runs/42212716858) did not expose Accepted publickey to the log observer until **after** the PAM account approval was released. An earlier authenticated 0 line was an unverified key offer. Do not assume log arrival before approval merely because OpenSSH source invokes auth_log earlier. Do not correlate sessions using only username/IP.
 
