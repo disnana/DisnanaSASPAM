@@ -1,5 +1,7 @@
 # 更新・ダウングレード・自動復旧（Alpha）
 
+**日本語** | [English](en/updates.md) · [ドキュメント一覧](README.md) · [README](../README.md)
+
 DisnanaSASPAMの更新処理は **SSHのPAM保護を解除しない** ことを前提にしています。デーモンが停止している間に届いたSSH承認要求は、Fail Closedで拒否されます。
 
 ## 前提条件
@@ -13,7 +15,7 @@ DisnanaSASPAMの更新処理は **SSHのPAM保護を解除しない** ことを�
 
 ```bash
 sudo saspam update --version v0.1.0-alpha.4 --dry-run
-sudo saspam update --version v0.1.0-alpha.4
+sudo saspam update --version v0.1.0-alpha.4 --allow-reinstall
 sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
 sudo saspam update --rollback
 ```
@@ -50,3 +52,7 @@ Alpha.3には安全な更新・復旧コマンドがありません。最初の�
 - Docker実行は非rootプロセス運用との比較・脅威モデル検討中です。通常のsystemdサービスが標準です
 - 更新と同時に進行中の認証要求は失敗することがありますが、認可をバイパスしません
 - Fail Closedは遠隔ログイン不能につながり得るため、サーバー所有者による復旧確認が必須です
+
+**注意:** 上記はコマンド構文例です。古い版へ戻す場合、現在の設定形式や認証プロトコルと互換性がなければ新版側の事前検証で拒否されるべきであり、無理に旧版を起動しないでください。公開チェックサムだけでは発行者の真正性を独立に保証しません
+
+[復旧](recovery.md) · [セキュリティ](security.md) · [English](en/updates.md)

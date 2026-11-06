@@ -1,76 +1,63 @@
 # DisnanaSASPAM
 
-**Disnana Simple Advanced Security PAM** — SSH認証に成功した**後**、Discordで承認してからログインさせる、Ubuntu向けの軽量PAMゲートです。
+**日本語** | [English](README.en.md)
 
-> **Status: v0.1.0-alpha.4 / developer preview.** 未監査のAlpha版です。Ubuntu CI上でのSSH/PAM統合テストを実施済みですが、FIDOハードウェアとDiscord本番APIを使ったE2Eテストは未実施です。本番SSHに組み込む前に隔離VMと復旧手段を用意してください。
+**Disnana Simple Advanced Security PAM** — SSHの公開鍵・FIDO・パスワードによる**一次認証成功後**に、Discordで追加承認を求めるUbuntu向けPAMゲート
 
-## 特徴
+> **v0.1.0-alpha.4 / Developer Preview** — 独立したセキュリティ監査は未完了で、**本番SSHサーバーでの運用は推奨しません**。GitHub Actionsでは実際のSSH/PAM承認フローを検証済みですが、FIDO実機・Discord API全体のE2E・PAM有効状態での更新障害復旧には追加検証が必要です。必ず既存の管理用SSHセッションと、SSHに依存しない復旧用コンソールを確保してください
 
-- **Post-authentication**: SSH公開鍵・FIDO・パスワードなど、一次認証成功後のPAM **account** フェーズに承認チェックを追加
-- **コンソールは対象外**: `/etc/pam.d/sshd` のみ変更。`login`・`sudo`・`su` は保護対象外
-- **Discordで承認と記録**: 許可したロール（複数指定可）を持ち、専用チャンネルを閲覧できるメンバーだけが「承認 / 拒否」を操作可能。拒否・期限切れはログイン不可
-- **Rust中心**: PAMモジュール、Unix socket認証デーモン、管理CLI。Discord Botは非rootのPythonプロセス
-- **通知を追加**: ntfy / Barkへの通知をオプションで送信可能（**初期版では通知のみ**）
-- **安全に導入・解除**: 既存PAM設定を変更するのは、明示的な `saspam enable` の実行時だけ
-- **おまけのSSH攻撃対策**: `saspam security` から保守的な接続・認証試行制限を確認、適用、戻す
+## 主な機能
 
-## 動作イメージ
+- **一次認証後の承認** — `sshd`のPAM **account**フェーズでのみゲート。SSHの認証方式自体は置き換えない
+- **物理コンソール対象外** — 変更するのは`/etc/pam.d/sshd`のみ。`login`・`sudo`・`su`・`common-account`は変更しない
+- **Discordロール認可** — 承認ロールIDはカンマ区切りで複数指定可能。対象サーバー・チャンネルで、許可ロールを1つ以上持ち閲覧権限のあるメンバーのみ操作可能
+- **日本語・英語** — 初回セットアップで選択。主要CLI、Discord Embed・ボタン、Bark/ntfy通知の言語を共通で切り替え
+- **シンプルなボタン操作** — Discordのボタンは無言でDeferし、元のEmbedを編集して処理済みボタンを無効化。成功時の本人向け追加メッセージは出さない
+- **通知先の追加** — ntfy.sh・BarkへのHTTPS通知（**承認機能はなし**）
+- **Fail Closed** — 拒否・期限切れ・Bot停止・認証デーモン停止では勝手にログインを許可しない
+- **操作メニューと管理機能** — 矢印キーのメニュー、部分設定変更、通知テスト、任意のSSH試行制限、更新・ダウングレード・ロールバック
 
-~~~text
-SSH接続
-  └─ SSH公開鍵 / FIDO / パスワード認証に成功
-       └─ /etc/pam.d/sshd → pam_saspam.so（Rust、accountのみ）
-            └─ /run/saspam/pam.sock → saspamd（Rust、root）
-                 ├─ Discord Bot（Python、非root）へ通知 → 承認 / 拒否
-                 └─ ntfy / Barkへ通知（任意、初期版は通知のみ）
-                      └─ 承認あり → PAM_SUCCESS → SSHログイン
-                      └─ 拒否 / タイムアウト / 障害 → PAM_PERM_DENIED
-~~~
+### 動作の概要
 
-Discord Botは通常のDiscord APIへ接続するため、**TailscaleやNetBirdは必須ではありません**。ntfy / Barkの**通知のみ**ならVPNは不要です。Tailscale / NetBird内のWeb承認APIは将来の開発対象であり、**このalphaには未搭載**です。
+```text
+SSHの公開鍵 / FIDO / パスワード一次認証が成功
+  └─ sshd の PAM account フック: pam_saspam.so (Rust)
+      └─ /run/saspam/pam.sock（root専用）
+          └─ saspamd（Rust製承認デーモン）
+              ├─ /run/saspam/bot.sock → Discord Bot（Python・非root）
+              │     └─ ロールとチャンネル権限を検証して承認 / 拒否
+              └─ 任意の通知 → ntfy / Bark（通知専用）
+                    ├─ 承認 → PAM_SUCCESS → SSHログイン
+                    └─ 拒否・期限切れ・障害 → PAM_PERM_DENIED
+```
 
-## ワンコマンドインストール
+Discord Botは通常のDiscord APIへ接続するため、Tailscale・NetBirdは必須ではありません。プッシュ通知から直接承認するWeb画面は、現在のAlpha版にはありません
 
-**GitHub Releasesで公開中のAlpha版は、バージョン指定でインストールできます。**スクリプトはUbuntu amd64 / arm64向けReleaseアーカイブと`SHA256SUMS`を取得・照合して配置します。**インストールしただけではSSHを保護しません。**
+## インストール（まずは使い捨てUbuntu VMで）
 
-~~~bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash
-~~~
+検証対象はUbuntu 22.04・24.04のamd64・arm64、systemd、OpenSSH Serverです。その他のバージョンはすべての組み合わせを検証しているわけではありません
 
-**プレリリース版をテスト用Ubuntuに導入する場合（Release公開後）**:
+**公開中のAlpha版はバージョンを明示して導入してください**
 
-~~~bash
+```bash
 curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.4
-~~~
+```
 
-このコマンドもインストールしただけではPAMを有効化しません。正式な安定版のReleaseがまだない間は、バージョン省略のワンコマンドは安全のため失敗します。**Alphaは本番サーバーでの使用を推奨しません。**
+GitHub Releaseのアーカイブと`SHA256SUMS`を取得・照合します。**インストールだけではSSHのPAM保護は有効化されません**。正式安定版のReleaseはまだないため、バージョン省略で安定版を取得する運用はできません
 
-特定バージョンを指定する場合:
+rootでリモートスクリプトを実行する前に、保存して中身を確認することも推奨します。SHA-256は同じ公開元のチェックサムとの照合であり、**独立した発行者署名の検証ではありません**
 
-~~~bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0
-~~~
+## 初期設定と承認テスト
 
-**現時点で安定版のReleaseはありません。上記v0.1.0指定は失敗して終了します。** それが意図した安全動作です。初期開発版は [開発者向けセットアップ](docs/installation.md) を参照してください。
+Discord Developer PortalでBotを作成し、Bot Token、Guild（サーバー）ID、通知Channel ID、承認Role IDを用意してください。通知先は専用の非公開チャンネルが推奨です。Botにチャンネル閲覧・送信・Embed・履歴参照の権限を付与します。特権のMessage Content Intentは不要です
 
-> 遠隔スクリプトをrootで直接実行するのが不安な場合は、先に`scripts/install.sh`を保存・確認し、その後に`sudo bash scripts/install.sh`を実行してください。SHA-256照合はファイル破損の検出であり、独立した署名検証とは異なります。
+```bash
+sudo saspam setup       # 初回言語・Discord・通知設定
+sudo saspam doctor      # sshd、PAM、認証デーモン、Botの状態確認
+sudo saspam test        # PAMを変更せず、Discordの承認ボタンをテスト
+```
 
-## 初期設定（必ず既存SSHセッションを残す）
-
-Discord Developer PortalでBotを作成し、Bot Token・Guild（サーバー）ID・通知先Channel ID・承認を許す**ロールID（数値・複数ならカンマ区切り）**を用意します。専用ロールだけが通知チャンネルを閲覧できるようDiscord側で設定してください。Botにはチャンネル閲覧、メッセージ送信、Embed送信、履歴参照の権限を付与します。Message Content Intentは不要です。
-
-~~~bash
-sudo saspam setup       # 対話形式で入力、設定を保存しサービスを起動
-sudo saspam doctor      # sshd / PAM / IPC / Botの状態診断
-sudo saspam test        # 本物のDiscord承認を試す。ここではPAMは変更しない
-sudo saspam enable --ack-recovery --ack-tested
-~~~
-
-最後のコマンドは、**直近15分以内に成功した承認テスト**と、管理者の復旧経路確認を要求します。初回の有効化後も**既存SSHセッションを閉じずに**、別ターミナルからSSHでログインし、承認・拒否・期限切れをテストしてください。
-
-### Discordロールによる承認
-
-`sudo saspam setup` で、例えば次のように入力する
+承認ロールは複数指定できます。以下では**どちらか1つのロール**があれば承認・拒否できる方式（OR条件）
 
 ```text
 Discord server (guild) ID: 111111111111111111
@@ -78,158 +65,108 @@ Discord notification channel ID: 222222222222222222
 Allowed Discord role IDs: 333333333333333333, 444444444444444444
 ```
 
-上記では **どちらか1つのロールを持てば承認・拒否できる（OR条件）**。ロールだけではなく、操作するDiscordサーバー・チャンネルの一致と`VIEW_CHANNEL`権限も必要。BotはDiscordのGuild Member interactionに含まれるロール情報を使用し、rootの認証デーモンは設定済みロール／チャンネル／サーバーIDを照合する。`@everyone`ロールを許可することはできない
+実際のロール・チャンネルの閲覧権限も必要です。`@everyone`ロールを承認ロールとして指定することはできません
 
-個別のDiscordユーザーIDを登録する必要はない。ただし、専用ロールを付与できる管理者にも実質的に承認権限を付与できるため、Discordのロール管理権限は慎重に制限すること
+メンションは「**承認ロール全員**（標準）」「**@everyone**（追加確認あり）」「**なし**」から選択できます。**メンション先と承認権限は別**であり、`@everyone`へ通知しても全員がSSHログインを承認できるようにはなりません。実際のメンション通知はBot側のDiscord権限にも依存します
 
-**Bot停止・Discord接続断の場合は自動承認しない。** 既定60秒の承認期限を過ぎるとSSHログインを拒否する。認証デーモンが停止している場合はPAMが拒否する
+### SSH保護を有効にする
 
-### v0.1.0-alpha.1からの移行
-
-旧バージョンでは承認するユーザーIDを設定していた。新方式は`allowed_role_ids`、`guild_id`、`channel_id`が必須になり、**旧設定は新デーモンでは受理されない（Fail Closed）**
-
-以前のAlpha版が有効な場合は、管理用SSHセッションまたはクラウドコンソールを保持したまま、先に `sudo saspam disable` し、更新後 `sudo saspam setup` でロール設定を再入力すること。セットアップテスト成功後にのみ再度 `enable` する。インストーラーはPAMが有効なままの上書き更新を拒否する
-
-### Discord通知のメンション設定と日本語表示
-
-`sudo saspam setup` で通知メンションを次の3通りから選択できます
-
-| 選択 | メンション対象 | 備考 |
-|---|---|---|
-| **1: 承認ロール全員（既定）** | `<@&ロールID>` を承認ロールの数だけ送信 | 該当ロールを持つ人へ通知（Botのメンション権限が必要な場合あり） |
-| **2: @everyone** | `@everyone` を送信 | **明示的な二段階確認が必要**。チャンネルを閲覧できるメンバーへ通知 |
-| **3: なし** | メンションなし | ログのみ残す |
-
-通知の対象と承認できる権限は**別**です。`@everyone`で通知しても、実際に承認・拒否できるのは設定済みロールを持ち、対象チャンネルを閲覧できるメンバーだけ。Discordのメンション権限がない場合は通知が届かないことがあります
-
-初代版のように、リクエスト発生時は黄、承認は緑、拒否は赤、期限切れは灰色の日本語Embedを表示します。同じメッセージを状態更新し、処理済みの承認・拒否ボタンは無効化します
-
-```text
-🔐 SSHログイン承認リクエスト
-承認待ち — SSHの一次認証に成功した接続があります
-
-ユーザー ubuntu が 100.92.24.113 からログインを試みています
-🖥️ 接続先サーバー: example-server
-🌐 接続元IP / ホスト: 100.92.24.113
-📅 要求日時 / ⏳ 承認期限
-セッションID: ...
-
-[承認] [拒否]
-```
-
-### Botが起動しない / `saspam test`が進まない
-
-`Testing real Discord approval without editing PAM` は、SSH設定を変更せずに**Discord上で承認が押されるのを待つ**テストでした。Botが起動していないと通知が届かず、従来は期限まで待ち続けていました
-
-alpha.3からはBot停止時の事前チェックを行い、**すぐにエラー表示してテストを中断**します。実ログインの許可は行いません
+`sudo saspam test`で本当にDiscord承認できたことを確認し、**現在のSSHセッションを閉じずに**コンソールなどSSH以外の復旧手段を確保してください。その後に実行します
 
 ```bash
-sudo systemctl status saspam-discord --no-pager -l
-sudo journalctl -u saspam-discord -n 80 --no-pager -o cat
-sudo namei -l /opt/saspam/venv/bin/python
-sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
+sudo saspam enable --ack-recovery --ack-tested
 ```
 
-旧インストーラーは`umask 077`でvenvを作り、非rootのBotから`203/EXEC Permission denied`が起こることがありました。新インストーラーでは**Python仮想環境のみをroot:saspam-botグループから実行可能**にし、インストール時にBotユーザーで実行テストします。`/etc/saspam`内の秘密情報はroot専用のままです
+現在の設定に対する直近15分以内の承認テスト成功が必要です。有効化後は**別ターミナルから新しいSSH接続**を試し、承認・拒否・期限切れの挙動を確認してください
 
-**既に保護を有効化しているホストでは、復旧用コンソールとSSHセッションを残し、必ず `sudo saspam disable` の後に更新してください。** 新しいAlpha版を導入しても自動でPAMを有効化しません
-
-## 操作メニュー・部分設定・言語切替（alpha.4）
-
-初回`saspam setup`で日本語またはEnglishを選ぶと、管理CLI、Discord Bot、Bark・ntfyの通知で同じ言語を使用します
+SASPAMによるSSH保護だけを解除する場合：
 
 ```bash
-sudo saspam                     # TestDisk風メニュー (↑↓・Enter/Space・Esc)
-sudo saspam config              # 言語、通知先、権限などを個別変更
-sudo saspam config show         # 認証情報を隠して設定表示
-sudo saspam config set language en
+sudo saspam disable
+sudo saspam status
+```
+
+## TestDisk風メニューと設定の部分変更
+
+```bash
+sudo saspam                         # ↑↓ / Enter / Space / Esc
+sudo saspam menu                    # メニューを明示起動
+sudo saspam config                  # 必要な設定だけを選んで変更
+sudo saspam config show             # 秘密鍵などを隠して設定確認
+sudo saspam config set language en  # CLI・Bot・通知を英語に変更
 sudo saspam config set language ja
 sudo saspam config set mentions roles
+sudo saspam config set mentions none
 sudo saspam config set timeout 60
+sudo saspam config set roles 333333333333333333,444444444444444444
 sudo saspam config set ntfy topic --generate
 sudo saspam config set ntfy on
-sudo saspam config set bark key # 秘密キーを非表示入力
+sudo saspam config set bark key     # デバイスキーは非表示で対話入力
 sudo saspam config set bark on
 sudo saspam notify test ntfy
 sudo saspam notify test bark
 sudo saspam notify test all
 ```
 
-Bark・ntfyは**通知専用**で、ログインの承認操作はDiscordで行います。SSH保護が有効な場合、設定変更に伴う再起動で承認待ちが失敗する可能性があるため、明示的な確認が必要です
+Bark・ntfyは**通知専用**です。公開プッシュサービスへは接続元IP・ホスト名などの情報が送られる場合があるため、プライバシーに注意してください
 
-## 更新・ダウングレード・自動復旧
+SSH保護中の設定変更はサービスの再起動で一時的に承認要求が拒否されることがあります。CLIは変更前の確認を求め、検証・再起動に失敗した場合は旧設定への復旧を試みます。無停止変更の保証ではありません
+
+## 更新・ダウングレード・自動ロールバック
 
 ```bash
 sudo saspam update --version v0.1.0-alpha.4 --dry-run
-sudo saspam update --version v0.1.0-alpha.4
+sudo saspam update --version v0.1.0-alpha.4 --allow-reinstall
 sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
 sudo saspam update --rollback
 ```
 
-更新は旧版バックアップ、新版検証、サービス切替、Discord承認テスト、確定の順です。異常終了時はsystemd復旧タイマーが旧版への復帰を試みます。**PAM保護は更新中も解除せずFail Closedを維持**します。`--block-new-ssh`は安全性検証中で、現状は指定してもエラー終了します
+更新処理は、新版の事前検証、旧版と設定のバックアップ、サービス切替、承認テスト、確定の順。独立したsystemdタイマーが未完了更新を検知した場合は旧版への復元を試みます。**更新中もSSHのPAMフックは解除せず、承認できない接続は拒否**する構成です
 
-初めてAlpha.3からAlpha.4へ移行する場合だけ、旧版に更新機能がないため、コンソールと既存SSHセッションを確保して`saspam disable`してからインストーラーを実行してください。詳細は[更新・復旧ガイド](docs/updates.md)を参照
+**alpha.3からalpha.4へ最初に移行する場合**は、alpha.3に更新機構がないため、復旧経路を確保したうえで`sudo saspam disable`してからバージョン指定インストーラーを実行してください。以降の更新は`saspam update`を使用できます
 
-### よく使うコマンド
+`--block-new-ssh`は未提供で、指定するとエラーになります。ファイアウォールを使った新規SSH接続の一時遮断は安全性検証後に対応する方針です。[詳細な更新・復旧手順](docs/updates.md)
 
-| コマンド | 用途 |
-|---|---|
-| `saspam help` | 全コマンド表示 |
-| `sudo saspam setup` | Discord / ntfy / Bark設定を対話形式で作成 |
-| `sudo saspam doctor` | 安全性・サービス・設定診断 |
-| `sudo saspam test` | PAMを有効化せず承認動作確認 |
-| `sudo saspam status` | PAM保護とサービスの稼働確認 |
-| `sudo saspam enable --ack-recovery --ack-tested` | SSHだけに承認ゲートを追加 |
-| `sudo saspam disable` | SASPAMが管理するPAM行だけ除去 |
-| `sudo saspam security audit` | SSH実効設定とFail2ban稼働状況の診断 |
-| `sudo saspam security apply --ack-recovery` | SSHの保守的な試行制限を適用 |
-| `sudo saspam security rollback` | 上記のSSH試行制限設定を削除 |
-| `sudo saspam uninstall --yes` | PAM解除後にサービス・バイナリを除去 |
+## 任意のSSH攻撃対策
 
-`security apply` はSSHパスワード認証やrootログインを勝手に無効化しません。既存のSSH制御設定との衝突をチェックし、検証に失敗した場合は適用を中止します。
+```bash
+sudo saspam security audit
+sudo saspam security apply --ack-recovery
+sudo saspam security rollback
+```
 
-### 設定とログ
+現在の任意設定は`MaxAuthTries 4`・`LoginGraceTime 45`・`MaxStartups 10:30:60`です。IPごとの時間制BANではありません。SSHポート・パスワード認証・rootログインを勝手に変更しません
 
-- `/etc/saspam/config.toml`: 承認時間、サーバー名、通知先（root専用）
-- `/etc/saspam/discord.env`: Bot Token・Channel ID・許可ユーザーID（root専用）
-- `/run/saspam/pam.sock`: root専用のPAM IPC
-- `/run/saspam/bot.sock`: 専用Botグループ限定のIPC
-- `journalctl -u saspamd -u saspam-discord -f`: サービス・承認イベントログ
-- `/var/lib/saspam/sshd.pam.backup`: 初回有効化時のPAMバックアップ
+**SASPAMの標準承認待ち60秒と`LoginGraceTime 45`の整合性は、環境で別途確認が必要**です。実機での挙動を確認するまで`security apply`を安易に実行しないでください
 
-通知先の追加・変更は `sudo saspam setup` から。**SSH保護を無効にしてから**実施してください。Discordへの通知は便利な閲覧用記録ですが、削除・編集が可能なので、監査はローカルjournalも併用します。
+## 障害・復旧・制限事項
 
-## 困ったとき
+SSHへ新しくログインできない場合、既存の管理用セッションまたは実際のコンソールから：
 
-~~~bash
-# 既存SSHセッションかクラウドコンソールから、まず保護だけ解除
+```bash
 sudo saspam disable
-sudo saspam status
 sudo /usr/sbin/sshd -t
-
-# ログ確認
+sudo saspam status
 sudo journalctl -u saspamd -u saspam-discord -n 100 --no-pager
-~~~
+```
 
-インストール時にPAMは書き換えません。初期版は通信断でも**Fail Closed**（ログイン拒否）なので、必ず**クラウドのシリアルコンソール等の復旧経路**を確認してください。詳しくは [復旧手順](docs/recovery.md)。
+Botが停止しているときは勝手に承認されず、未承認要求は期限切れになります。認証デーモン停止時はPAMが拒否します。既存のSSHセッションや多重化済みのチャネルには再承認を要求しません
 
-## 対応範囲と制限
+実Discord APIのすべての経路、FIDOハードウェア、PAM有効状態の障害復旧、独立したセキュリティ監査、署名・provenance検証は安定版までの課題です。DockerによるBot分離やVPN経由のBark/ntfy承認画面はalpha.4では提供していません
 
-| 項目 | v0.1.0-alpha.2 |
-|---|---|
-| Ubuntu / systemd / amd64・arm64 | Ubuntu 22.04/24.04のSSH統合テストをCIで実施（実機・FIDOは未検証） |
-| SSH一次認証後にDiscord承認 | 実装対象 |
-| 拒否 / 期限切れ / Bot停止時の拒否 | 実装対象 |
-| ntfy / Bark | **通知のみ** |
-| ntfy / BarkのWeb承認（Tailscale / NetBird） | **未実装** |
-| 全ホスト向けの公開API | なし |
-| コンソール・sudo・suへの保護 | なし |
-| 自動マージ / 本番運用保証 | なし |
+## ドキュメント / Documentation
 
-## ドキュメント
+| 内容 | 日本語 | English |
+|---|---|---|
+| README | このページ | [English README](README.en.md) |
+| インストール・設定 | [日本語](docs/installation.md) | [English](docs/en/installation.md) |
+| 構成・権限境界 | [日本語](docs/architecture.md) | [English](docs/en/architecture.md) |
+| ロックアウト時の復旧 | [日本語](docs/recovery.md) | [English](docs/en/recovery.md) |
+| セキュリティと制限 | [日本語](docs/security.md) | [English](docs/en/security.md) |
+| 更新・ダウングレード | [日本語](docs/updates.md) | [English](docs/en/updates.md) |
 
-[インストールと開発版](docs/installation.md) · [構成](docs/architecture.md) · [復旧](docs/recovery.md) · [セキュリティ](docs/security.md)
+[日英ドキュメント一覧](docs/README.md)
 
-## License
+## ライセンス・脆弱性報告
 
-MIT License. 脆弱性の報告は公開Issueではなく、GitHubのprivate vulnerability reportingなど非公開の連絡手段でお願いします。
+MIT License。脆弱性の悪用可能な詳細は公開Issueへ書かず、GitHubの非公開脆弱性報告など適切な非公開窓口を利用してください

@@ -1,20 +1,32 @@
-# Install / Setup（開発版）
+# インストール・セットアップ（Alpha版）
+
+**日本語** | [English](en/installation.md) · [ドキュメント一覧](README.md) · [README](../README.md)
 
 > 開発中の未監査alphaです。**本番SSHへ導入しないでください**。クラウドコンソールへのアクセスと別の管理セッションが必要です。
 
 ## 前提
 
-Ubuntu 22.04 / 24.04 / 26.04をターゲットとします（対応保証はCIとVMテスト後）。systemd、OpenSSH Server（`UsePAM yes`）、amd64またはarm64、Discord Botが必要です。
+Ubuntu 22.04 / 24.04（amd64 / arm64）がCIの実SSH/PAMテスト対象です。Ubuntu 26.04など他バージョンでの動作保証はありません。systemd、OpenSSH Server（`UsePAM yes`）、amd64またはarm64、Discord Botが必要です。
 
-## 現在の開発ブランチから（リリース前）
+## 公開Alpha版のインストール
+
+検証済みの公開版をテスト用Ubuntuへ導入する場合は、バージョンを指定してください
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.4
+```
+
+インストールだけではSSHのPAM保護を有効化しません。SHA-256チェックサム照合は発行者の独立した署名確認とは異なるため、rootで実行する前にスクリプトの内容を確認してください
+
+## ソースからのビルド（開発用）
 
 ~~~bash
 sudo apt-get install -y git build-essential pkg-config libpam0g-dev python3 python3-venv python3-pip
 git clone https://github.com/disnana/DisnanaSASPAM.git
 cd DisnanaSASPAM
 # stable Rust / Cargo のインストールは公式 https://rustup.rs/ を参照
-cargo test --workspace
-cargo build --release --workspace
+cargo test --locked --workspace
+cargo build --locked --release --workspace
 sudo bash scripts/install-from-build.sh
 ~~~
 
@@ -26,9 +38,9 @@ sudo bash scripts/install-from-build.sh
 2. Botを専用の非公開チャンネルへ招待し、閲覧・メッセージ送信・Embed・履歴参照の権限を付与
 3. Discord開発者モードでGuild ID・Channel ID・**承認用Role ID（カンマ区切りで複数可）**を取得。専用チャンネルの閲覧権限をロールで制限
 4. `sudo saspam setup` を実行し、Bot Token、Guild ID、Channel ID、複数Role ID、サーバー名、タイムアウト（10～180秒）を入力
-5. `sudo saspam doctor` と `sudo saspam test`。DiscordのApproveボタンで成功することを確認
+5. `sudo saspam doctor` と `sudo saspam test`。Discordの「承認」ボタンで成功することを確認
 6. 既存SSHセッションとコンソール復旧経路を維持し `sudo saspam enable --ack-recovery --ack-tested`
-7. 別SSHセッションから新しいログインでApprove / Deny / Timeoutを確認
+7. 別SSHセッションから新しいログインで承認・拒否・期限切れを確認
 
 ### ntfy / Bark
 
@@ -49,11 +61,11 @@ sudo bash scripts/install-from-build.sh
 
 ## 既存Alpha利用者の移行
 
-`v0.1.0-alpha.1` はDiscordユーザーIDによる承認方式で、`alpha.2` はロールIDに切り替わります
+`v0.1.0-alpha.1` はDiscordユーザーID方式で、`alpha.2`からロールID方式です。現在の`alpha.4`には部分設定と更新機構が追加されています
 
 1. **復旧用コンソール／既存SSHセッションを確保**
 2. 更新前に`sudo saspam disable`し、PAMが無効化されていることを`sudo saspam status`で確認
-3. 新バージョンのワンコマンドインストール（`--version v0.1.0-alpha.2`）を実行
+3. 新バージョンのワンコマンドインストール（`--version v0.1.0-alpha.4`）を実行
 4. `sudo saspam setup`で旧ユーザーID設定を新しいロールID設定へ置き換え
 5. `sudo saspam doctor` → `sudo saspam test`で実承認を確認し、`enable`で再有効化
 6. 別SSHセッションからログイン成功・拒否・期限切れを確認
@@ -77,7 +89,7 @@ sudo namei -l /opt/saspam/venv/bin/python
 sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
 ```
 
-`saspam test` はPAMを書き換えずにDiscordでの承認を待ちます。Bot停止時は事前チェックで中断します。復旧用コンソールを確認し、**実際にApprove（承認）できた後**でなければ`saspam enable`を実行しないでください
+`saspam test` はPAMを書き換えずにDiscordでの承認を待ちます。Bot停止時は事前チェックで中断します。復旧用コンソールを確認し、**実際に「承認」できた後**でなければ`saspam enable`を実行しないでください
 
 ## v0.1.0-alpha.4 の対話設定と通知テスト
 
@@ -100,3 +112,9 @@ sudo saspam notify test bark
 ### 初期バージョンからの更新
 
 alpha.3には安全な更新コマンドがないため、復旧手段を確認してPAMを解除してからalpha.4のインストーラーを実行します。alpha.4以降の更新は `sudo saspam update` を利用し、PAMを無効化しない方式です。詳細は[更新ガイド](updates.md)を確認してください
+
+## 安全に設定を変更するには
+
+`sudo saspam config`で言語、Bark、ntfy、メンション、ロール、承認期限などを個別に変更できます。SSH保護が有効な場合は再起動に伴って承認中のログインが拒否される可能性があり、明示確認が必要です。`sudo saspam notify test ntfy`や`sudo saspam notify test bark`はPAMを変更せず送信を試します
+
+[更新・ダウングレード](updates.md) · [復旧手順](recovery.md) · [English version](en/installation.md)
