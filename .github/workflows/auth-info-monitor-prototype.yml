@@ -39,6 +39,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd _openssh
+          autoreconf -fi
           ./configure --with-pam --with-privsep-path=/run/sshd             --prefix=/usr/local/saspam-experimental
           make -j2 sshd
           test -x ./sshd
