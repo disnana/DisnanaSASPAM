@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 import json
 
-from integrations.discord.bot import RequestView, command, has_approval_role, parse_role_ids
+from integrations.discord.bot import RequestView, command, embed, notification_mention, has_approval_role, parse_role_ids
 
 GUILD = 111111111111111111
 CHANNEL = 222222222222222222
@@ -14,11 +14,61 @@ class DiscordViewTests(unittest.TestCase):
     def test_persistent_request_buttons(self):
         view = RequestView("00000000-0000-0000-0000-000000000001", GUILD, CHANNEL, ROLES)
         self.assertTrue(view.is_persistent())
-        self.assertEqual({item.label for item in view.children}, {"Approve", "Deny"})
+        self.assertEqual({item.label for item in view.children}, {"承認", "拒否"})
 
     def test_completed_view_is_disabled(self):
         view = RequestView("00000000-0000-0000-0000-000000000002", GUILD, CHANNEL, ROLES, done=True)
         self.assertTrue(all(item.disabled for item in view.children))
+
+    def test_mentions_all_approval_roles(self):
+        text, allowed = notification_mention("roles", ROLES)
+        for role_id in ROLES:
+            self.assertIn(f"<@&{role_id}>", text)
+        self.assertFalse(allowed.everyone)
+        self.assertFalse(allowed.users)
+        self.assertEqual({role.id for role in allowed.roles}, ROLES)
+
+    def test_everyone_is_explicit_and_distinct_from_role_authorization(self):
+        text, allowed = notification_mention("everyone", ROLES)
+        self.assertEqual(text, "@everyone")
+        self.assertTrue(allowed.everyone)
+        self.assertFalse(allowed.roles)
+        self.assertFalse(allowed.users)
+        # An everyone ping does not authorize someone who lacks an approval role.
+        self.assertFalse(has_approval_role(GUILD, CHANNEL, set(), True, GUILD, CHANNEL, ROLES))
+
+    def test_no_ping_default_and_invalid_mode_rejection(self):
+        text, allowed = notification_mention("none", ROLES)
+        self.assertIsNone(text)
+        self.assertFalse(allowed.everyone)
+        self.assertFalse(allowed.roles)
+        with self.assertRaises(ValueError):
+            notification_mention("bad-mode", ROLES)
+
+    def test_japanese_embed_pending_and_completed_states(self):
+        req = {
+            "request_id": "00000000-0000-0000-0000-000000000001",
+            "user": "ubuntu",
+            "remote_host": "192.0.2.1",
+            "server_name": "example-host",
+            "created_unix": 1793891000,
+            "expires_unix": 1793891060,
+            "status": "pending",
+            "actor_id": None,
+        }
+        pending = embed(req)
+        self.assertIn("SSHログイン承認リクエスト", pending.title)
+        self.assertIn("\n\n", pending.description)
+        self.assertTrue(any("接続先" in field.name for field in pending.fields))
+        self.assertTrue(any("承認期限" in field.name for field in pending.fields))
+        for status, keyword in (("approved", "承認"), ("denied", "拒否"), ("expired", "タイムアウト")):
+            with self.subTest(status=status):
+                req["status"] = status
+                req["actor_id"] = "555555555555555555" if status != "expired" else None
+                finished = embed(req)
+                self.assertIn(keyword, finished.title)
+                self.assertFalse(any("承認期限" in field.name for field in finished.fields))
+                self.assertIn("処理済み", finished.footer.text)
 
     def test_bot_sends_protocol_v2_and_role_context(self):
         class FakeSocket:
