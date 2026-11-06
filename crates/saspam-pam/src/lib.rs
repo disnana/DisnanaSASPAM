@@ -35,7 +35,11 @@ fn parse_auth_info(raw: Option<&str>) -> Vec<AuthMethod> {
             "password" => AuthMethod::Password,
             "publickey" => {
                 let algorithm = words.next().unwrap_or("");
-                if algorithm.starts_with("sk-") && algorithm.ends_with("@openssh.com") {
+                if algorithm.starts_with("sk-ecdsa-sha2-nistp256") && algorithm.ends_with("@openssh.com") {
+                    AuthMethod::FidoEcdsaSk
+                } else if algorithm.starts_with("sk-ssh-ed25519") && algorithm.ends_with("@openssh.com") {
+                    AuthMethod::FidoEd25519Sk
+                } else if algorithm.starts_with("sk-") && algorithm.ends_with("@openssh.com") {
                     AuthMethod::Fido
                 } else { AuthMethod::PublicKey }
             },
@@ -102,8 +106,8 @@ mod tests {
     fn recognizes_completed_auth_methods_without_exposing_ssh_key_material() {
         assert_eq!(parse_auth_info(Some("password\n")), vec![AuthMethod::Password]);
         assert_eq!(parse_auth_info(Some("publickey ssh-ed25519 AAAAC3NzaSecretKeyData\n")), vec![AuthMethod::PublicKey]);
-        assert_eq!(parse_auth_info(Some("publickey sk-ssh-ed25519@openssh.com AAAAFidoData\n")), vec![AuthMethod::Fido]);
-        assert_eq!(parse_auth_info(Some("publickey sk-ecdsa-sha2-nistp256@openssh.com AAAAFidoData\n")), vec![AuthMethod::Fido]);
+        assert_eq!(parse_auth_info(Some("publickey sk-ssh-ed25519@openssh.com AAAAFidoData\n")), vec![AuthMethod::FidoEd25519Sk]);
+        assert_eq!(parse_auth_info(Some("publickey sk-ecdsa-sha2-nistp256@openssh.com AAAAFidoData\n")), vec![AuthMethod::FidoEcdsaSk]);
         assert_eq!(parse_auth_info(Some("keyboard-interactive/pam\n")), vec![AuthMethod::KeyboardInteractive]);
     }
     #[test]
