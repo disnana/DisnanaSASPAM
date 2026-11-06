@@ -129,7 +129,7 @@ fn setup() -> Result<(), String> {
     if fs::read_to_string(PAM_FILE).unwrap_or_default().contains("pam_saspam.so") {
         return Err("disable SASPAM before changing its configuration; preserve a recovery session".into());
     }
-    println!("SASPAM setup: Discord approval is required in v0.1; ntfy and Bark are alert-only");
+    println!("SASPAM初期設定 — Discord承認を設定します。ntfyとBarkは通知専用です");
     let server = ask("Server name", "ubuntu-server")?;
     if server.len() > 128 || server.trim().is_empty() || server.contains(['\n','\r']) { return Err("invalid server name".into()); }
     let timeout = ask("Approval timeout (10-180 seconds)", "60")?.parse::<u64>().map_err(|_| "invalid timeout")?;
@@ -142,6 +142,22 @@ fn setup() -> Result<(), String> {
     if roles.contains(&guild) { return Err("Discord @everyone role cannot approve SSH logins; choose a dedicated role".into()); }
     let roles_toml = roles.iter().map(|id| toml_string(id)).collect::<Vec<_>>().join(", ");
     let roles_env = roles.join(",");
+    println!("通知時にメンションする対象を選んでください");
+    println!("  1: 承認ロールすべて（推奨）");
+    println!("  2: @everyone（明示的な許可が必要）");
+    println!("  3: メンションなし");
+    let mention_mode = match ask("メンション方式 (1/2/3)", "1")?.as_str() {
+        "1" => "roles",
+        "2" => {
+            println!("警告: @everyoneはこのチャンネルの閲覧可能な全員に通知を送信します");
+            if !ask_yes("@everyoneの通知を明示的に有効化しますか? (yes/no)")? {
+                return Err("@everyoneメンションは有効化されませんでした".into());
+            }
+            "everyone"
+        }
+        "3" => "none",
+        _ => return Err("メンション方式は1, 2, 3から選択してください".into()),
+    };
     let token = rpassword::prompt_password("Discord Bot Token (hidden): ").map_err(|e| e.to_string())?;
     if token.len() < 30 || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_') { return Err("invalid Discord Bot token format".into()); }
     let ntfy = ask_yes("Enable ntfy notification alerts? (yes/no)")?;
@@ -154,7 +170,7 @@ fn setup() -> Result<(), String> {
     let bark_key = if bark { rpassword::prompt_password("Bark device key (hidden): ").map_err(|e| e.to_string())? } else { String::new() };
     if bark && (bark_key.is_empty() || bark_key.contains(['\n','\r','\"'])) { return Err("invalid Bark device key".into()); }
     let config = format!("# Owned by root. Do not commit this file.\n[general]\nserver_name = {}\ntimeout_seconds = {}\n\n[discord]\nenabled = true\nguild_id = {}\nchannel_id = {}\nallowed_role_ids = [{}]\n\n[ntfy]\nenabled = {}\nserver = \"https://ntfy.sh\"\ntopic = {}\n\n[bark]\nenabled = {}\nserver = \"https://api.day.app\"\ndevice_key = {}\n", toml_string(&server), timeout, toml_string(&guild), toml_string(&channel), roles_toml, ntfy, toml_string(&ntfy_topic), bark, toml_string(&bark_key));
-    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_GUILD_ID={}\nDISCORD_CHANNEL_ID={}\nDISCORD_APPROVAL_ROLE_IDS={}\n", token, guild, channel, roles_env);
+    let env_file = format!("DISCORD_TOKEN={}\nDISCORD_GUILD_ID={}\nDISCORD_CHANNEL_ID={}\nDISCORD_APPROVAL_ROLE_IDS={}\nDISCORD_MENTION_MODE={}\n", token, guild, channel, roles_env, mention_mode);
     let path = Path::new("/etc/saspam/config.toml");
     if path.exists() { fs::copy(path, "/etc/saspam/config.toml.bak").map_err(|e| e.to_string())?; }
     write_private(path, &config)?;
@@ -203,7 +219,7 @@ fn doctor() -> Result<(), String> {
     println!("[OK] PAM module installed");
     probe()?;
     println!("[OK] daemon IPC");
-    if !service_active("saspam-discord") { return Err("saspam-discord systemd service not active".into()); }
+    if !service_active("saspam-discord") { return Err("Discord Botが停止しています。systemctl status saspam-discord --no-pager -l / journalctl -u saspam-discord -n 80 で確認してください（SSH保護は有効化しないでください）".into()); }
     println!("[OK] Discord Bot service active (not a substitute for an approval test)");
     Ok(())
 }
@@ -216,8 +232,11 @@ fn status() -> Result<(), String> {
 }
 fn test_login() -> Result<(), String> {
     root()?;
+    // Do not hang waiting for Discord when the Bot has not started.
+    doctor()?;
     let user = env::var("SUDO_USER").unwrap_or_else(|_| "root".into());
-    println!("Testing real Discord approval without editing PAM");
+    println!("Discord承認テストを開始します（PAM設定は変更しません）");
+    println!("Discordの承認メッセージから「承認」または「拒否」を選んでください");
     let mut stream = UnixStream::connect(PAM_SOCKET).map_err(|e| e.to_string())?;
     stream.set_read_timeout(Some(Duration::from_secs(195))).map_err(|e| e.to_string())?;
     let cmd = PamCommand::Authorize {version:VERSION, user, service:"sshd".into(), remote_host:"SASPAM-CLI-TEST".into()};

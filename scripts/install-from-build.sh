@@ -25,6 +25,11 @@ install -m 0644 "$ROOT/integrations/discord/requirements.txt" /opt/saspam/discor
 install -m 0755 "$ROOT/scripts/uninstall.sh" /usr/local/lib/saspam/uninstall.sh
 python3 -m venv /opt/saspam/venv
 /opt/saspam/venv/bin/python -m pip install --disable-pip-version-check --no-input -r /opt/saspam/discord/requirements.txt
+# umask 077 protects secrets, but the isolated Bot needs to run its venv.
+# Share only the interpreter/dependencies with the Bot group; never /etc/saspam.
+chown -R root:saspam-bot /opt/saspam/venv
+chmod -R u=rwX,g=rX,o= /opt/saspam/venv
+runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print("SASPAM Bot Python OK:", discord.__version__)'
 install -m 0644 "$ROOT/systemd/saspamd.service" /etc/systemd/system/saspamd.service
 install -m 0644 "$ROOT/systemd/saspam-discord.service" /etc/systemd/system/saspam-discord.service
 systemctl daemon-reload

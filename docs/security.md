@@ -37,3 +37,12 @@
 - Discord Gatewayから受け取ったMemberロール情報を非root Botが照合し、root daemonが許可ロールと一致を再確認
 - Botを侵害された場合はIPC経由でロール情報を偽装できる危険が残る。Botトークン、専用プロセス、Unix Socketの権限を保護する
 - Discord Botが死んでいてもFail Closed。デーモンが動作中なら期限切れまで待って拒否。デーモンがない場合は直ちにPAMが拒否
+
+## Discord通知のメンション権限
+
+- メンション対象：なし／設定済みの全承認ロール／`@everyone`。初期設定時の既定はロールメンション、`@everyone`には明示的な追加確認が必要
+- ロールメンションはDiscordで実際に通知可能なBot権限（ロールのメンション許可や`MENTION_EVERYONE`）に依存
+- `@everyone`は**通知だけ**。承認権限・PAM認可の判定には一切利用しない
+- `AllowedMentions`で意図した対象のメンションだけ許可し、ユーザーが入力したSSH接続元データがメンションを発生させないようエスケープ
+- 完了状態のメッセージ編集で追加メンションは送信しない。処理済みボタンは無効化
+- `saspam-bot`以外のアカウントにvenvの読み書き権限を広げない。`/etc/saspam/discord.env`はroot専用に維持
