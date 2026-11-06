@@ -171,41 +171,44 @@ class RequestView(discord.ui.View):
 
     def _callback(self, decision: str):
         async def action(interaction: discord.Interaction) -> None:
-            # Component interactions contain a guild Member with the roles
-            # supplied by Discord. No privileged Guild Members intent required.
+            # A component message-update defer is a silent ACK. Do not create an
+            # ephemeral reply, progress indicator or Follow-up for this action.
+            await interaction.response.defer(thinking=False)
             if not isinstance(interaction.user, discord.Member):
-                await interaction.response.send_message("Discordサーバーのメンバーである必要があります", ephemeral=True)
+                LOG.warning("Rejected non-member approval interaction")
                 return
             role_ids = {role.id for role in interaction.user.roles}
             if not has_approval_role(
                 interaction.guild_id, interaction.channel_id, role_ids,
                 interaction.permissions.view_channel, self.guild_id, self.channel_id, self.allowed_roles
             ) or not interaction.message or not interaction.client.user or interaction.message.author.id != interaction.client.user.id:
-                await interaction.response.send_message("このSSHログインを承認・拒否する権限がありません", ephemeral=True)
+                LOG.warning("Rejected unauthorized approval interaction for request %s", self.request_id)
                 return
-            await interaction.response.defer(ephemeral=True)
             try:
                 result = await request({"action": "decide", "request_id": self.request_id,
                                         "actor_id": str(interaction.user.id), "decision": decision,
                                         "guild_id": str(interaction.guild_id),
                                         "channel_id": str(interaction.channel_id),
                                         "role_ids": [str(role_id) for role_id in sorted(role_ids)]})
-            except (OSError, ValueError, RuntimeError) as exc:
-                LOG.warning("IPC decision failed: %s", type(exc).__name__)
-                await interaction.followup.send("承認サービスに接続できません。ログインは許可されません", ephemeral=True)
-                return
-            if not result.get("ok"):
-                await interaction.followup.send("このリクエストは処理済み・期限切れ・権限不足のいずれかです", ephemeral=True)
-                return
-            # discord.py View has no disable_all_items() (that API belongs to Pycord).
-            for item in self.children:
-                item.disabled = True
-            req_reply = await request({"action": "get", "request_id": self.request_id})
-            if req_reply.get("ok") and req_reply.get("requests") and interaction.message:
-                await interaction.message.edit(embed=embed(req_reply["requests"][0]), view=self)
-            await interaction.followup.send("承認結果を記録しました", ephemeral=True)
+                if not result.get("ok"):
+                    # Another client may already have approved, denied or expired
+                    # this request. The poller refreshes the original Embed.
+                    LOG.info("Approval request %s already completed or rejected", self.request_id)
+                    return
+                req_reply = await request({"action": "get", "request_id": self.request_id})
+                if req_reply.get("ok") and req_reply.get("requests"):
+                    updated = req_reply["requests"][0]
+                    if updated.get("status") != "pending":
+                        for item in self.children:
+                            item.disabled = True
+                    await interaction.message.edit(embed=embed(updated), view=self)
+                else:
+                    LOG.warning("Unable to load finalized state for request %s", self.request_id)
+            except (OSError, ValueError, RuntimeError, discord.DiscordException) as exc:
+                # Fail closed: the coordinator remains authoritative. The poller
+                # can still update the original message once it reconnects.
+                LOG.warning("Approval update failed (%s) for request %s", type(exc).__name__, self.request_id)
         return action
-
 
 class SaspamBot(discord.Client):
     def __init__(self, guild_id: int, channel_id: int, allowed_roles: frozenset[int], mention_mode: str = "none"):
