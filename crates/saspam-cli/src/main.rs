@@ -63,10 +63,13 @@ fn help() {
         println!("DisnanaSASPAM v{} | SSH認証成功後の追加承認\n  saspam / saspam menu            対話形式の管理メニュー\n  sudo saspam setup               初期設定・言語選択\n  sudo saspam config              一部設定だけを変更\n  sudo saspam config show         現在の設定\n  sudo saspam config set language ja|en [--ack-interruption]\n  sudo saspam config set mentions roles|everyone|none\n  sudo saspam config set ntfy on|off|topic [値]\n  sudo saspam config set bark on|off|key\n  sudo saspam notify test ntfy|bark|all\n  sudo saspam update --version vX.Y.Z[-alpha.N]{}\n物理コンソール・sudo・suは変更しません",env!("CARGO_PKG_VERSION"),common);
     }
 }
+fn tr(ja: &'static str, en: &'static str) -> &'static str {
+    if settings::current_language() == "en" { en } else { ja }
+}
 fn root() -> Result<(), String> {
     let output = Command::new("id").arg("-u").output().map_err(|e| e.to_string())?;
     if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "0" { Ok(()) }
-    else { Err("run as root: sudo saspam ...".into()) }
+    else { Err(tr("root権限が必要です: sudo saspam ...", "Run as root: sudo saspam ...").into()) }
 }
 fn ask(prompt: &str, default: &str) -> Result<String, String> {
     print!("{prompt} [{default}]: ");
@@ -234,24 +237,24 @@ fn doctor() -> Result<(), String> {
     let lang = settings::current_language();
     println!("{}",interactive::t(&lang,"DisnanaSASPAM 診断","DisnanaSASPAM doctor"));
     sshd_check(&["-t"])?;
-    println!("[OK] sshd syntax");
-    if sshd_setting("usepam")?.trim() != "yes" { return Err("sshd UsePAM is not yes; account hook will not run".into()); }
-    println!("[OK] UsePAM=yes (verify host-specific Match blocks separately)");
-    if !configured() { return Err("run sudo saspam setup first".into()); }
-    println!("[OK] config and Discord env exist");
+    println!("[OK] {}",tr("sshdの構文は正常","sshd syntax valid"));
+    if sshd_setting("usepam")?.trim() != "yes" { return Err(tr("UsePAM=yesが必要です。PAM認証ゲートが実行されません","UsePAM=yes is required for the SSH account hook").into()); }
+    println!("[OK] {}",tr("UsePAM=yes（Match設定は別途確認してください）","UsePAM=yes (verify host-specific Match blocks separately)"));
+    if !configured() { return Err(tr("先に sudo saspam setup を実行してください","Run sudo saspam setup first").into()); }
+    println!("[OK] {}",tr("設定ファイルとDiscord認証情報があります","configuration and Discord environment found"));
     if !Path::new(PAM_MODULE).exists() { return Err(format!("PAM module missing: {PAM_MODULE}")); }
-    println!("[OK] PAM module installed");
+    println!("[OK] {}",tr("PAMモジュールが配置されています","PAM module installed"));
     probe()?;
-    println!("[OK] daemon IPC");
+    println!("[OK] {}",tr("認証デーモンのIPC正常","daemon IPC working"));
     if !service_active("saspam-discord") { return Err("Discord Botが停止しています。systemctl status saspam-discord --no-pager -l / journalctl -u saspam-discord -n 80 で確認してください（SSH保護は有効化しないでください）".into()); }
-    println!("[OK] Discord Bot service active (not a substitute for an approval test)");
+    println!("[OK] {}",tr("Discord Bot稼働中（承認テストは別途必要）","Discord Bot active (test approval separately)"));
     Ok(())
 }
 fn status() -> Result<(), String> {
-    println!("SASPAM PAM enabled: {}", fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l == MARKER));
-    println!("saspamd active: {}", service_active("saspamd"));
-    println!("Discord Bot active: {}", service_active("saspam-discord"));
-    println!("Config present: {}", configured());
+    println!("{}: {}",tr("SSHのPAM保護","SSH PAM protection enabled"), fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l == MARKER));
+    println!("{}: {}",tr("認証デーモン稼働中","saspamd active"), service_active("saspamd"));
+    println!("{}: {}",tr("Discord Bot稼働中","Discord Bot active"), service_active("saspam-discord"));
+    println!("{}: {}",tr("設定ファイル","Configuration present"), configured());
     Ok(())
 }
 fn test_login() -> Result<(), String> {
@@ -259,8 +262,8 @@ fn test_login() -> Result<(), String> {
     // Do not hang waiting for Discord when the Bot has not started.
     doctor()?;
     let user = env::var("SUDO_USER").unwrap_or_else(|_| "root".into());
-    println!("Discord承認テストを開始します（PAM設定は変更しません）");
-    println!("Discordの承認メッセージから「承認」または「拒否」を選んでください");
+    println!("{}",tr("Discord承認テストを開始します（PAM設定は変更しません）","Testing Discord approval without changing PAM"));
+    println!("{}",tr("Discordの承認メッセージから「承認」または「拒否」を選んでください","Choose Approve or Deny in the Discord message"));
     let mut stream = UnixStream::connect(PAM_SOCKET).map_err(|e| e.to_string())?;
     stream.set_read_timeout(Some(Duration::from_secs(195))).map_err(|e| e.to_string())?;
     let cmd = PamCommand::Authorize {version:VERSION, user, service:"sshd".into(), remote_host:"SASPAM-CLI-TEST".into()};
@@ -270,19 +273,19 @@ fn test_login() -> Result<(), String> {
     let reply: Reply = serde_json::from_str(&buf).map_err(|e|e.to_string())?;
     if reply.ok && reply.status == Some(saspam_protocol::Status::Approved) {
         write_private(Path::new(LAST_TEST), "passed\n")?;
-        println!("[OK] Approval delivered to PAM gate (receipt valid 15 minutes)");
+        println!("[OK] {}",tr("承認成功（15分以内に保護の有効化が可能です）","Approval succeeded (valid for 15 minutes)"));
         Ok(())
     } else { Err(format!("test not approved: {:?} {:?}", reply.status, reply.error)) }
 }
 fn enable(args: &[String]) -> Result<(), String> {
     root()?;
     if !args.iter().any(|x|x=="--ack-recovery") || !args.iter().any(|x|x=="--ack-tested") {
-        return Err("complete a test and confirm console/SSH recovery; then use --ack-recovery --ack-tested".into());
+        return Err(tr("まず承認テストと復旧手段を確認し、--ack-recovery --ack-tested を指定してください","Complete approval test and confirm recovery; use --ack-recovery --ack-tested").into());
     }
     doctor()?;
-    if !recent_approval_test() { return Err("no successful approval test within 15 minutes of current config; run sudo saspam test".into()); }
+    if !recent_approval_test() { return Err(tr("現在の設定で15分以内に承認テスト成功がありません。sudo saspam test を実行してください","No successful approval test within 15 minutes; run sudo saspam test").into()); }
     let src = fs::read_to_string(PAM_FILE).map_err(|e|e.to_string())?;
-    if src.lines().any(|l|l == MARKER) { println!("SASPAM already enabled"); return Ok(()); }
+    if src.lines().any(|l|l == MARKER) { println!("{}",tr("SASPAMはすでに有効です","SASPAM is already enabled")); return Ok(()); }
     if src.contains("pam_saspam.so") { return Err("unknown pre-existing SASPAM PAM entry; manual review required".into()); }
     let mut lines: Vec<String> = src.lines().map(str::to_owned).collect();
     let pos = lines.iter().position(|l| { let t=l.trim(); t.starts_with("account ") || t.starts_with("@include common-account") }).ok_or("cannot identify PAM account stack; aborting")?;
@@ -294,7 +297,7 @@ fn enable(args: &[String]) -> Result<(), String> {
     write_pam(&revised)?;
     // sshd -t does not validate PAM semantics; manual SSH test is still required.
     if let Err(e) = sshd_check(&["-t"]) { write_pam(&src)?; return Err(e); }
-    println!("SASPAM enabled for SSH ONLY. Keep current session; verify a NEW SSH login before disconnecting.");
+    println!("{}",tr("SSH限定で保護を有効化しました。既存接続を維持し、別接続からの認証を確認してください","SASPAM enabled for SSH only. Keep your existing session and test a new SSH login"));
     Ok(())
 }
 fn disable() -> Result<(), String> {
@@ -306,10 +309,10 @@ fn disable() -> Result<(), String> {
         if line == MARKER { n += 1; continue; }
         result.push_str(line); result.push('\n');
     }
-    if n == 0 { println!("SASPAM PAM hook already absent"); return Ok(()); }
+    if n == 0 { println!("{}",tr("SASPAMはすでに無効です","SASPAM PAM hook is already absent")); return Ok(()); }
     if n != 1 { return Err("multiple PAM hooks found; refusing to change automatically".into()); }
     write_pam(&result)?;
-    println!("Removed SASPAM account hook; other PAM entries left untouched");
+    println!("{}",tr("SSHの追加承認だけを無効化しました。他のPAM設定は変更していません","SASPAM account hook removed; other PAM entries unchanged"));
     Ok(())
 }
 fn reload_ssh() -> Result<(), String> {
@@ -323,8 +326,8 @@ fn security(args: &[String]) -> Result<(), String> {
             for name in ["usepam","passwordauthentication","pubkeyauthentication","permitrootlogin","maxauthtries","logingracetime","maxstartups"] {
                 println!("{name} = {}", sshd_setting(name)?);
             }
-            println!("Fail2ban active: {}", service_active("fail2ban"));
-            println!("Optional safeguards are NEVER enabled automatically.");
+            println!("{}: {}",tr("Fail2ban稼働","Fail2ban active"), service_active("fail2ban"));
+            println!("{}",tr("任意のSSH対策は自動で適用されません","Optional SSH safeguards are never applied automatically"));
             Ok(())
         }
         "apply" => {
