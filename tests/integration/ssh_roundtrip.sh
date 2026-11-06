@@ -5,7 +5,7 @@ ROOT=$(pwd)
 TMP=$(mktemp -d)
 PORT=22387
 cleanup() {
-  sudo systemctl stop saspam-sshd-ci.service saspamd-ci.service saspam-discord.service 2>/dev/null || :
+  sudo systemctl stop saspam-sshd-ci.service saspam-sshd-mfa-ci.service saspamd-ci.service saspam-discord.service 2>/dev/null || :
   if [[ -f "$TMP/pam-original" ]]; then sudo cp "$TMP/pam-original" /etc/pam.d/sshd; fi
   sudo userdel -r saspam-ci 2>/dev/null || :
   rm -rf "$TMP"
@@ -127,13 +127,20 @@ assert reply["ok"] and not reply["requests"], "Failed primary auth incorrectly c
 PY
 
 echo '== Public key needs approval and must report public_key =='
-sudo python3 tests/integration/decision_bot.py approve --valid-auth public_key --timeout 15 &
+# Stock Ubuntu has no trusted account-stage method metadata.
+PUB_ALLOWED="public_key,unknown"
+PW_ALLOWED="password,unknown"
+if [[ -n "${SASPAM_TEST_SSHD_BIN:-}" ]]; then
+  PUB_ALLOWED="public_key"
+  PW_ALLOWED="password"
+fi
+sudo python3 tests/integration/decision_bot.py approve --valid-auth "$PUB_ALLOWED" --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${SSH_BASE[@]}" 'printf APPROVED')
 wait "$BOT_PID"
 [[ "$OUT" == "APPROVED" ]] || { echo "Unexpected key SSH output: $OUT" >&2; exit 1; }
 echo '== Password needs approval and must report password =='
-sudo python3 tests/integration/decision_bot.py approve --valid-auth password --timeout 15 &
+sudo python3 tests/integration/decision_bot.py approve --valid-auth "$PW_ALLOWED" --timeout 15 &
 BOT_PID=$!
 OUT=$(timeout 26 "${PW_BASE[@]}" 'printf APPROVED-PASSWORD')
 wait "$BOT_PID"
@@ -153,6 +160,37 @@ if [[ "${SASPAM_TEST_DUMMY_FIDO:-}" == 1 ]]; then
     -o BatchMode=yes -i "$SK_KEY" saspam-ci@127.0.0.1 'printf ECDSA-SK-APPROVED')
   wait "$FIDO_BOT_PID"
   [[ "$FIDO_OUTPUT" == "ECDSA-SK-APPROVED" ]] || { echo "Unexpected FIDO output: $FIDO_OUTPUT" >&2; exit 1; }
+fi
+if [[ -n "${SASPAM_TEST_SSHD_BIN:-}" ]]; then
+  echo '== Experimental verified two-factor publickey,password method order =='
+  # Separate localhost-only sshd; no changes to system ssh or the original port.
+  MFA_PORT=22388
+  sed -e "s/^Port $PORT$/Port $MFA_PORT/" \
+      -e 's@^PidFile .*@PidFile /run/sshd/saspam-mfa-ci.pid@' \
+      "$TMP/sshd.conf" >"$TMP/sshd-mfa.conf"
+  printf '%s\n' 'AuthenticationMethods publickey,password' >>"$TMP/sshd-mfa.conf"
+  sudo "$SSHD_EXEC" -t -f "$TMP/sshd-mfa.conf"
+  sudo systemd-run --unit=saspam-sshd-mfa-ci --property=Restart=no \
+    "$SSHD_EXEC" -D -e -f "$TMP/sshd-mfa.conf"
+  for _ in $(seq 1 50); do
+    if python3 - "$MFA_PORT" <<'PY' >/dev/null 2>&1
+import socket,sys
+with socket.create_connection(("127.0.0.1",int(sys.argv[1])),timeout=.25): pass
+PY
+    then break; fi
+    sleep 0.2
+  done
+  sudo python3 tests/integration/decision_bot.py approve --exact-auth public_key,password --timeout 15 &
+  MFA_BOT_PID=$!
+  MFA_OUTPUT=$(timeout 28 sshpass -p 'only-CI-test-password-123' ssh \
+    -p "$MFA_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=5 -o PreferredAuthentications=publickey,password \
+    -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=1 \
+    -i "$TMP/key" saspam-ci@127.0.0.1 'printf MFA-APPROVED')
+  wait "$MFA_BOT_PID"
+  [[ "$MFA_OUTPUT" == "MFA-APPROVED" ]] || {
+    echo "MFA SSH failed: $MFA_OUTPUT" >&2; exit 1;
+  }
 fi
 echo '== Deny prevents session =='
 sudo python3 tests/integration/decision_bot.py deny --timeout 15 &

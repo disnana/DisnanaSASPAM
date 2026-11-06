@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--timeout", type=float, default=15)
     parser.add_argument("--user", default="saspam-ci")
     parser.add_argument("--valid-auth", help="comma-separated allowed authentication categories")
+    parser.add_argument("--exact-auth", help="exact ordered verified factor categories")
     args = parser.parse_args()
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
@@ -40,6 +41,11 @@ def main():
         matches = [r for r in reply["requests"] if r["user"] == args.user and r["status"] == "pending"]
         if matches:
             row = max(matches, key=lambda r: r["created_unix"])
+            if args.exact_auth:
+                expected = args.exact_auth.split(",")
+                if (row.get("auth_methods") or ["unknown"]) != expected:
+                    print(f"Unexpected verified factor order: {row.get('auth_methods')!r}, expected {expected!r}", file=sys.stderr)
+                    return 1
             if args.valid_auth:
                 observed = row.get("auth_methods") or ["unknown"]
                 allowed = set(args.valid_auth.split(","))

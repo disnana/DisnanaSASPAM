@@ -1,40 +1,78 @@
 --- a/monitor.c
 +++ b/monitor.c
-@@ -1136,9 +1136,37 @@
+@@ -152,6 +152,46 @@
+ static char *hostbased_cuser = NULL;
+ static char *hostbased_chost = NULL;
+ static char *auth_method = "unknown";
++#ifdef USE_PAM
++/*
++ * Record only authentication decisions made by the privileged monitor.
++ * This excludes offered-but-unverified public keys and sensitive key data.
++ * Each SSH connection has an isolated monitor process.
++ */
++static char saspam_verified_auth[512];
++static size_t saspam_verified_len;
++
++static void
++saspam_record_verified_auth(void)
++{
++	char item[160];
++	const char *algorithm = NULL;
++	int n;
++
++	if (strcmp(auth_method, "publickey") == 0) {
++		if (authctxt->auth_method_key != NULL)
++			algorithm = sshkey_ssh_name(authctxt->auth_method_key);
++		if (algorithm != NULL)
++			n = snprintf(item, sizeof(item), "publickey %s", algorithm);
++		else
++			n = snprintf(item, sizeof(item), "publickey");
++	} else if (strcmp(auth_method, "password") == 0 ||
++	    strcmp(auth_method, "keyboard-interactive") == 0 ||
++	    strcmp(auth_method, "hostbased") == 0) {
++		n = snprintf(item, sizeof(item), "%s", auth_method);
++	} else {
++		n = snprintf(item, sizeof(item), "unknown");
++	}
++	if (n < 0 || (size_t)n >= sizeof(item) ||
++	    saspam_verified_len + (size_t)n + 2 > sizeof(saspam_verified_auth))
++		fatal_f("verified authentication method list too long");
++
++	memcpy(saspam_verified_auth + saspam_verified_len, item, (size_t)n);
++	saspam_verified_len += (size_t)n;
++	saspam_verified_auth[saspam_verified_len++] = '\n';
++	saspam_verified_auth[saspam_verified_len] = '\0';
++}
++#endif
+ static char *auth_submethod = NULL;
+ static u_int session_id2_len = 0;
+ static u_char *session_id2 = NULL;
+@@ -314,6 +354,16 @@
+ 			}
+ 		}
  
++#ifdef USE_PAM
++		/*
++		 * Only MON_AUTHDECIDE responses can report a completed factor.
++		 * Record each verified factor (including partial MFA success)
++		 * before PAM account checks, not just the final factor.
++		 */
++		if ((authenticated || partial) &&
++		    (ent->flags & MON_AUTHDECIDE))
++			saspam_record_verified_auth();
++#endif
+ 		if (authenticated) {
+ 			if (!(ent->flags & MON_AUTHDECIDE))
+ 				fatal_f("unexpected authentication from %d",
+@@ -1137,6 +1187,11 @@
  	if (!options.use_pam)
  		fatal_f("PAM not enabled");
  
-+	/*
-+	 * SASPAM experimental privileged-monitor integration.
-+	 * The monitor has finished verifying the SSH authentication method
-+	 * at this point.  Its session_info is not populated until after
-+	 * PAM account checks, so expose only a bounded method identifier.
-+	 * This does NOT change SSH authorization or bypass PAM.
-+	 */
-+	{
-+		char info[160];
-+		const char *key_alg = NULL;
-+		if (strcmp(auth_method, "publickey") == 0 &&
-+		    authctxt->auth_method_key != NULL)
-+			key_alg = sshkey_ssh_name(authctxt->auth_method_key);
-+		if (key_alg != NULL) {
-+			if (snprintf(info, sizeof(info), "publickey %s",
-+			    key_alg) >= (int)sizeof(info))
-+				fatal_f("auth method identifier too long");
-+		} else if (strcmp(auth_method, "password") == 0 ||
-+		    strcmp(auth_method, "keyboard-interactive") == 0 ||
-+		    strcmp(auth_method, "hostbased") == 0) {
-+			strlcpy(info, auth_method, sizeof(info));
-+		} else {
-+			strlcpy(info, "unknown", sizeof(info));
-+		}
-+		if (do_pam_putenv("SASPAM_VERIFIED_AUTH_INFO_0", info) != 0)
-+			error_f("could not expose SSH authentication method");
-+	}
-+	
++	/* Display-only metadata, never an SSH authorization decision. */
++	if (saspam_verified_len != 0 &&
++	    do_pam_putenv("SASPAM_VERIFIED_AUTH_INFO_0",
++	    saspam_verified_auth) != 0)
++		error_f("could not expose SSH authentication methods");
  	ret = do_pam_account();
  
  	if ((r = sshbuf_put_u32(m, ret)) != 0 ||
- 	    (r = sshbuf_put_stringb(m, loginmsg)) != 0)
- 		fatal_fr(r, "buffer error");
