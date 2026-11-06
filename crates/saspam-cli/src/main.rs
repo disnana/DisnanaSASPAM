@@ -251,10 +251,37 @@ fn doctor() -> Result<(), String> {
     Ok(())
 }
 fn status() -> Result<(), String> {
-    println!("{}: {}",tr("SSHのPAM保護","SSH PAM protection enabled"), fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l == MARKER));
-    println!("{}: {}",tr("認証デーモン稼働中","saspamd active"), service_active("saspamd"));
-    println!("{}: {}",tr("Discord Bot稼働中","Discord Bot active"), service_active("saspam-discord"));
-    println!("{}: {}",tr("設定ファイル","Configuration present"), configured());
+    let lang = settings::current_language();
+    let active=fs::read_to_string(PAM_FILE).unwrap_or_default().lines().any(|l|l==MARKER);
+    let daemon=service_active("saspamd");
+    let bot=service_active("saspam-discord");
+    let config=configured();
+    let module=Path::new(PAM_MODULE).is_file();
+    let test=recent_approval_test();
+    let on=interactive::t(&lang,"有効","Enabled");
+    let off=interactive::t(&lang,"無効","Disabled");
+    let good=interactive::t(&lang,"正常","Running");
+    let stopped=interactive::t(&lang,"停止","Stopped");
+    let yes=interactive::t(&lang,"あり","Present");
+    let no=interactive::t(&lang,"なし","Missing");
+    println!("\nDisnanaSASPAM v{} — {}",env!("CARGO_PKG_VERSION"),
+        interactive::t(&lang,"現在の状態","Status"));
+    println!("────────────────────────────────────────────────");
+    println!("{}: {}",tr("SSH追加承認（PAM）","SSH approval (PAM)"),if active{on}else{off});
+    println!("{}: {}",tr("認証デーモン","Approval daemon"),if daemon{good}else{stopped});
+    println!("{}: {}",tr("Discord Bot","Discord Bot"),if bot{good}else{stopped});
+    println!("{}: {}",tr("PAMモジュール","PAM module"),if module{yes}else{no});
+    println!("{}: {}",tr("設定ファイル","Configuration"),if config{yes}else{no});
+    println!("{}: {}",tr("直近15分の承認テスト","Recent approval test (15 min)"),if test{yes}else{no});
+    println!("{}: {}",tr("言語","Language"),lang);
+    if active && (!daemon || !bot) {
+        println!("\n[!] {}",tr(
+            "SSH保護が有効ですがサービスが停止しています。新規SSHログインは拒否されるため、復旧コンソールを確認してください",
+            "SSH approval is enabled but a service is stopped. New SSH logins can fail closed; verify console recovery"));
+    }
+    if !active {
+        println!("\n{}",tr("SSHの追加承認は現在無効です","SSH approval is currently disabled"));
+    }
     Ok(())
 }
 fn test_login() -> Result<(), String> {
