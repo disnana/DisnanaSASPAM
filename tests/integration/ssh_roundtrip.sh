@@ -80,6 +80,7 @@ AuthorizedKeysFile .ssh/authorized_keys
 UsePAM yes
 PasswordAuthentication yes
 PubkeyAuthentication yes
+ExposeAuthInfo yes
 KbdInteractiveAuthentication no
 PermitRootLogin no
 AllowUsers saspam-ci
