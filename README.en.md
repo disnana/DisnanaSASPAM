@@ -120,6 +120,9 @@ The parser has unit tests, but live SSH/PAM CI on Ubuntu 22.04/24.04 exposed an 
 
 ### Discover and select Releases without a version number
 
+**For the first upgrade from alpha.4**, use `sudo saspam update --version v0.1.0-alpha.5`, since the alpha.4 CLI does not yet support versionless selection. From alpha.5 onward, `sudo saspam update` can discover Releases for you
+
+
 ```bash
 sudo saspam update             # Choose from recent published Releases
 sudo saspam update --list      # View available versions and installed status
