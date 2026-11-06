@@ -80,7 +80,6 @@ AuthorizedKeysFile .ssh/authorized_keys
 UsePAM yes
 PasswordAuthentication yes
 PubkeyAuthentication yes
-ExposeAuthInfo yes
 KbdInteractiveAuthentication no
 PermitRootLogin no
 AllowUsers saspam-ci
@@ -88,7 +87,7 @@ MaxAuthTries 3
 LogLevel VERBOSE
 EOF
 sudo /usr/sbin/sshd -t -f "$TMP/sshd.conf"
-sudo systemd-run --unit=saspam-sshd-ci --setenv=SASPAM_AUTH_INFO_DEBUG=1 --property=Restart=no /usr/sbin/sshd -D -e -f "$TMP/sshd.conf"
+sudo systemd-run --unit=saspam-sshd-ci --property=Restart=no /usr/sbin/sshd -D -e -f "$TMP/sshd.conf"
 for _ in $(seq 1 50); do
   if python3 - "$PORT" <<'PY' >/dev/null 2>&1
 import socket,sys
