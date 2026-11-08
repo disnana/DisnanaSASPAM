@@ -4,7 +4,7 @@
 
 ## 日本語
 
-これは以前の SSH 認証通知 Python スクリプトをもとに作成した、**SSHログの読み取り専用監査機能**です。**SASPAMの認証可否やDiscordの承認処理には使いません**。Alpha.6では独立したReleaseアセットとして配布しますが、自動インストール、サービス登録、SSH承認システムへの組み込みは行いません。
+これは以前の SSH 認証通知 Python スクリプトをもとに作成した、**SSHログの読み取り専用監査機能**です。**SASPAMの認証可否やDiscordの承認処理には使いません**。v1.0.0では独立したReleaseアセットとして配布しますが、自動インストール、サービス登録、SSH承認システムへの組み込みは行いません。
 
 ### 認証ログの注意点
 
@@ -17,7 +17,7 @@ OpenSSHソースで auth_log の呼び出しが PAM account より前でも、pr
 ソースチェックアウトに加え、Alpha.6以降はReleaseから単体ファイルを取得できます。配布物と同じReleaseのチェックサムを照合してください（独立した発行者署名ではありません）。
 
 ```bash
-TAG=v1.0.0-beta.2
+TAG=v1.0.0
 BASE="https://github.com/disnana/DisnanaSASPAM/releases/download/$TAG"
 curl --proto '=https' --tlsv1.2 -fsSLO "$BASE/SHA256SUMS"
 curl --proto '=https' --tlsv1.2 -fsSLO "$BASE/ssh_auth_events-$TAG.py"

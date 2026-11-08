@@ -2,7 +2,7 @@
 
 [**日本語**](../README.md) | [**English**](../README.en.md)
 
-**Current developer preview:** `v0.1.0-alpha.4`. This is not a production-security certification / 現在は未監査のAlpha版です
+**Current release / 現行正式版:** `v1.0.0`. Not independently security audited and not recommended for production SSH servers / 独立監査は未完了で、本番SSHサーバーへの導入は推奨しません。正式版という区分は本番運用の安全性を保証しません。
 
 | 項目 / Topic | 日本語 | English |
 |---|---|---|

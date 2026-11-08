@@ -2,7 +2,7 @@
 
 [日本語](../installation.md) | **English** · [Documentation index](../README.md) · [English README](../../README.en.md)
 
-> **Developer preview — v0.1.0-alpha.4.** Not independently security audited. Use a disposable Ubuntu VM first. Keep a working SSH session and a tested provider console or serial console before installing the PAM hook.
+> **v1.0.0 release.** Not independently security audited and **not recommended for production SSH servers**. Use a disposable Ubuntu VM first. Keep a working SSH session and a tested provider console or serial console before installing the PAM hook. The stable release designation does not certify production safety.
 
 ## Requirements
 
@@ -11,15 +11,17 @@
 - A Discord bot and private notification channel, with a valid bot token, guild ID, channel ID, and at least one approval role ID.
 - A recovery channel **independent from new SSH logins**, for example a VM serial console or hypervisor console. Verify that your provider console is actually a local login path, not just an SSH proxy.
 
-## Install the published alpha
+## Install the published release
 
-For the published test release, **specify the prerelease tag**:
+For a new installation on a test VM, **specify the published v1.0.0 tag**:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.4
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0
 ```
 
 The script checks the Release archive against its published `SHA256SUMS`, installs the binaries and Python adapter under systemd, and leaves the SSH PAM stack unchanged. **It does not enable the approval gate**. The checksums are not a publisher signature: inspect the source and verify the release independently if your trust policy requires it.
+
+Omitting `--version` selects GitHub's latest stable Release; keep the explicit tag to pin the installation. The installer refuses to overwrite an active PAM gate. For an existing installation, use the [update guide](updates.md): alpha.4 requires an explicit version, while alpha.5 and later also offer Release discovery. Alpha.3 and earlier need the separate legacy migration procedure, including `sudo saspam setup` to review settings and restart the daemon and Bot. Alpha.1's user-ID configuration must be replaced with role-based settings before enabling the gate again. Not every legacy migration combination has been validated.
 
 For a source build instead:
 
@@ -131,6 +133,8 @@ The selected provider must be enabled. These tests verify delivery from the daem
 
 Read [updates and rollback](updates.md) before upgrading a host whose SSH PAM gate is already active.
 
-## alpha.5: Primary SSH authentication method
+## v1.0.0: Authentication method hidden by default
 
-The Discord approval Embed shows verified method categories (public key, password, FIDO, keyboard-interactive or unknown) from OpenSSH's `SSH_AUTH_INFO_0` PAM environment. The module never forwards raw public keys, fingerprints or passwords. In live Ubuntu 22.04/24.04 SSH/PAM tests this information is empty, so the UI reports Unknown. Reliable method detection and real-device FIDO validation remain unverified
+**Hidden by default.** Discord approval cards omit the authentication-method field, including Unknown. A missing setting means OFF on both new and upgraded installations. The PAM/Discord approval decision is unchanged.
+
+Only operators who separately maintain a research OpenSSH build should opt into [experimental display](../auth-method-display.md), with explicit risk and recovery acknowledgements. The setting does not patch, build or replace OpenSSH. Stock Ubuntu still shows Unknown in experimental mode. Custom OpenSSH is not production-supported; hardware FIDO validation and independent security review remain unfinished. Raw keys, fingerprints and passwords are never forwarded.

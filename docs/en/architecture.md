@@ -56,6 +56,6 @@ The architecture is intentionally **Fail Closed**. If the daemon crashes, the ac
 
 ## Remaining production work
 
-GitHub Actions exercises real SSH/PAM flows with password and public-key authentication on Ubuntu. Hardware FIDO, full live Discord API end-to-end verification, active-PAM upgrade recovery, fault injection under load, and independent security review remain needed for a stable release. Optional Docker Bot isolation and VPN web approval are not part of this alpha.
+GitHub Actions exercises real SSH/PAM flows with password and public-key authentication on Ubuntu. Hardware FIDO, full live Discord API end-to-end verification, active-PAM upgrade recovery, fault injection under load, and independent security review remain unfinished in v1.0.0. Production SSH deployment is not recommended. Optional Docker Bot isolation and VPN web approval are not part of v1.0.0.
 
 See [security model](security.md) and [updates](updates.md).
