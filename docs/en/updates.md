@@ -1,4 +1,4 @@
-# Updates, downgrades and automated rollback (alpha)
+# Updates, downgrades and automated rollback (v1.0.0)
 
 [日本語](../updates.md) | **English** · [Documentation index](../README.md) · [English README](../../README.en.md)
 
@@ -10,26 +10,23 @@ The SASPAM update transaction is designed to **keep the SSH PAM account hook ins
 - Confirm `sudo saspam doctor` and `sudo saspam test` have succeeded with the current configuration
 - Record your currently installed version with `sudo cat /var/lib/saspam/installed-version`
 - If SASPAM is currently enabled, plan for new logins to be denied while the coordinator restarts
-- Use a disposable Ubuntu VM to rehearse updates and recovery first; the transaction implementation remains an unaudited alpha
+- Use a disposable Ubuntu VM to rehearse updates and recovery first; v1.0.0 is not independently audited and is not recommended for production SSH servers
 
 ## Commands
 
+These examples upgrade an older installation that already has the updater (alpha.4 or later) to v1.0.0. Alpha.3 and earlier require the separate legacy procedure below.
+
 ```bash
 # Download/check the requested release without switching live files
-sudo saspam update --version v0.1.0-alpha.4 --dry-run
+sudo saspam update --version v1.0.0 --dry-run
 
-# Upgrade to a newer published tag when available
-sudo saspam update --version v0.1.0-alpha.4
-
-# Reinstall exactly the current version (normally rejected without the flag)
-sudo saspam update --version v0.1.0-alpha.4 --allow-reinstall
-
-# A downgrade must be explicitly allowed
-sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
-
-# Restore the previous committed transaction
-sudo saspam update --rollback
+# Upgrade an older installation to the published release
+sudo saspam update --version v1.0.0
 ```
+
+If v1.0.0 is already installed, an intentional reinstall requires `--allow-reinstall`. A same-version preflight also needs this flag: `sudo saspam update --version v1.0.0 --allow-reinstall --dry-run`. Rollback restores a committed update backup; it does not undo the initial installation.
+
+Only when deliberately selecting an older, compatibility-reviewed tag should you add `--allow-downgrade`. Downgrading to an alpha is not the normal update path. Never force a release that cannot read the current configuration or support the update/recovery protocol.
 
 The normal transaction performs a new Discord approval test before committing. `--skip-approval-test` is supported only **when the SSH PAM gate is disabled**. Version ordering requires an explicit downgrade flag for older releases. The updater rejects concurrent operations and keeps recovery backups restricted to root.
 
@@ -48,17 +45,17 @@ The normal transaction performs a new Discord approval test before committing. `
 
 The updater uses a lock to prevent concurrent transactions and an independent recovery lock. A successful manual rollback and a simulated interrupted-upgrade restoration were exercised on an ephemeral Ubuntu GitHub Actions runner. This is useful evidence, **not** a guarantee that abrupt crashes and enabled-PAM upgrades are safe on every host.
 
-## First migration from alpha.3
+## Legacy migration from alpha.3 or earlier (no updater)
 
-Alpha.3 does **not** ship the update transaction helper. The first alpha.3 → alpha.4 transition must be done carefully:
+Alpha.3 and earlier do **not** ship the update transaction helper. The following procedure is only for those legacy versions. It does not establish that every legacy configuration has been validated; rehearse compatibility and recovery on a disposable VM first:
 
-1. Confirm your recovery console and preserve an active admin SSH session
-2. Run `sudo saspam disable` from that session before replacing components
-3. Install alpha.4 using the versioned [installation command](installation.md)
-4. Retain the existing configuration (or rerun setup if needed), then run `sudo saspam doctor` and complete a real Discord approval via `sudo saspam test`
+1. Confirm your recovery console, preserve an active admin SSH session and securely back up the secret configuration
+2. Run `sudo saspam disable` and verify with `sudo saspam status` before replacing components. SASPAM approval is absent during this interval, so control access while migrating
+3. Install v1.0.0 using the explicitly versioned [installation command](installation.md)
+4. **Run `sudo saspam setup` for every legacy migration** to review/save the configuration and restart the daemon and Bot. The installer alone does not restart running old processes. Alpha.1's old user-ID settings are incompatible and must be replaced with role-based settings. Then run `sudo saspam doctor` and complete a real Discord approval via `sudo saspam test`
 5. Enable the gate only after successful tests, with `sudo saspam enable --ack-recovery --ack-tested`, and test from another SSH connection
 
-Further alpha.4+ updates can use `saspam update` with the existing PAM hook kept in place, subject to compatibility and recovery checks.
+Alpha.4 and later use `saspam update --version v1.0.0` with the existing PAM hook kept in place, subject to compatibility and recovery checks. Alpha.4 requires the explicit version; an intermediate installation of alpha.5 is not required by the updater.
 
 ## Why new-SSH blocking is not supported yet
 
@@ -76,7 +73,7 @@ Keep the backup transaction files until you've reviewed and confirmed recovery. 
 
 See [recovery](recovery.md) and [security limitations](security.md).
 
-## alpha.5: No version number required
+## alpha.5 and later: Discover Releases without a version number
 
 ```bash
 sudo saspam update
@@ -84,4 +81,4 @@ sudo saspam update --list
 sudo saspam update --latest
 ```
 
-The CLI retrieves recent published GitHub Releases and offers an interactive selector showing newer/current/older status. Only Releases with a compatible architecture archive and SHA256SUMS appear. A downgrade must be explicitly authorized
+The CLI retrieves recent published GitHub Releases and offers an interactive selector showing newer/current/older status. Only Releases with a compatible architecture archive and SHA256SUMS appear. **`--latest` includes prereleases**, unlike omitting the installer's version (which selects the latest stable Release). Use `--version v1.0.0` to pin this stable version. A downgrade must be explicitly authorized

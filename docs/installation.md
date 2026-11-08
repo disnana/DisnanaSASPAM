@@ -1,22 +1,22 @@
-# インストール・セットアップ（Alpha版）
+# インストール・セットアップ（v1.0.0）
 
 **日本語** | [English](en/installation.md) · [ドキュメント一覧](README.md) · [README](../README.md)
 
-> 開発中の未監査alphaです。**本番SSHへ導入しないでください**。クラウドコンソールへのアクセスと別の管理セッションが必要です。
+> **v1.0.0 / 正式リリース**。独立したセキュリティ監査は未完了です。**本番SSHへ導入しないでください**。まず使い捨てUbuntu VMで検証し、SSHに依存しない復旧用コンソールと別の管理セッションを確保してください。
 
 ## 前提
 
 Ubuntu 22.04 / 24.04（amd64 / arm64）がCIの実SSH/PAMテスト対象です。Ubuntu 26.04など他バージョンでの動作保証はありません。systemd、OpenSSH Server（`UsePAM yes`）、amd64またはarm64、Discord Botが必要です。
 
-## 公開Alpha版のインストール
+## 公開版のインストール
 
-検証済みの公開版をテスト用Ubuntuへ導入する場合は、バージョンを指定してください
+テスト用Ubuntuへの新規導入は、公開中のv1.0.0を指定します。正式版という区分は本番運用の安全性を保証しません
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v0.1.0-alpha.4
+curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0
 ```
 
-インストールだけではSSHのPAM保護を有効化しません。SHA-256チェックサム照合は発行者の独立した署名確認とは異なるため、rootで実行する前にスクリプトの内容を確認してください
+インストールだけではSSHのPAM保護を有効化しません。`--version`を省略するとGitHubの最新の正式Releaseを取得します。版を固定するには上記の指定を使ってください。SHA-256チェックサム照合は発行者の独立した署名確認とは異なるため、rootで実行する前にスクリプトの内容を確認してください。PAM保護中の上書きは拒否されます。既存環境には[更新ガイド](updates.md)を使ってください
 
 ## ソースからのビルド（開発用）
 
@@ -61,14 +61,9 @@ sudo bash scripts/install-from-build.sh
 
 ## 既存Alpha利用者の移行
 
-`v0.1.0-alpha.1` はDiscordユーザーID方式で、`alpha.2`からロールID方式です。現在の`alpha.4`には部分設定と更新機構が追加されています
+**alpha.4以降はPAM保護を解除せず、[更新ガイド](updates.md)のバージョン指定更新を使ってください。** alpha.4では`--version`が必須で、alpha.5以降はReleaseの対話選択も利用できます
 
-1. **復旧用コンソール／既存SSHセッションを確保**
-2. 更新前に`sudo saspam disable`し、PAMが無効化されていることを`sudo saspam status`で確認
-3. 新バージョンのワンコマンドインストール（`--version v0.1.0-alpha.4`）を実行
-4. `sudo saspam setup`で旧ユーザーID設定を新しいロールID設定へ置き換え
-5. `sudo saspam doctor` → `sudo saspam test`で実承認を確認し、`enable`で再有効化
-6. 別SSHセッションからログイン成功・拒否・期限切れを確認
+alpha.3以前には更新機構がないため、別途[旧版の移行手順](updates.md)が必要です。`v0.1.0-alpha.1`はDiscordユーザーID方式で、alpha.2以降のロールID方式と設定に互換性がありません。すべての旧版移行で`sudo saspam setup`を実行し、設定を確認・保存してデーモンとBotを再起動します。`doctor`と実承認テストを通過させてから保護を有効化してください。旧版の全組み合わせについて移行が検証済みという意味ではありません
 
 Botが停止すると未承認要求は期限切れで拒否されます。Botロールの変更はDiscord側で行えますが、既存の承認メッセージや進行中のセッションは更新・再接続の影響を受けることがあります
 
@@ -91,7 +86,7 @@ sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; pr
 
 `saspam test` はPAMを書き換えずにDiscordでの承認を待ちます。Bot停止時は事前チェックで中断します。復旧用コンソールを確認し、**実際に「承認」できた後**でなければ`saspam enable`を実行しないでください
 
-## v0.1.0-alpha.4 の対話設定と通知テスト
+## 対話設定と通知テスト
 
 初回セットアップで日本語またはEnglishを選びます。Discord、Bark、ntfyのメッセージは同じ言語が既定になります。変更は `sudo saspam config` で個別に設定できます
 
@@ -111,7 +106,7 @@ sudo saspam notify test bark
 
 ### 初期バージョンからの更新
 
-alpha.3には安全な更新コマンドがないため、復旧手段を確認してPAMを解除してからalpha.4のインストーラーを実行します。alpha.4以降の更新は `sudo saspam update` を利用し、PAMを無効化しない方式です。詳細は[更新ガイド](updates.md)を確認してください
+alpha.3以前には更新コマンドがありません。alpha.4以降ではPAMを無効化せず `sudo saspam update --version v1.0.0` を利用できます。設定互換性と復旧経路を確認し、[更新ガイド](updates.md)の事前検証・旧版移行手順に従ってください
 
 ## 安全に設定を変更するには
 
@@ -119,6 +114,8 @@ alpha.3には安全な更新コマンドがないため、復旧手段を確認�
 
 [更新・ダウングレード](updates.md) · [復旧手順](recovery.md) · [English version](en/installation.md)
 
-## alpha.5：SSHの一次認証方式を表示
+## v1.0.0：認証方式欄は標準で非表示
 
-Discordの承認Embedで公開鍵/パスワード/FIDO/キーボード対話などを区別し、取得不可の場合は「不明」と表示します。OpenSSHのPAM環境`SSH_AUTH_INFO_0`を使い、鍵本体や指紋、パスワードは転送しません。Ubuntu 22.04/24.04の実SSH/PAMテストでは当該情報が空のため、表示は「不明」です。確実な認証方式判定とFIDO実機検証は今後の課題です
+**標準設定では認証方式欄を表示しません**。「不明」の欄も出しません。新規導入・更新とも設定が未指定ならOFFです。PAMとDiscordの承認判定は変わりません
+
+改造OpenSSHを別途検証・管理している利用者だけが、[実験的な表示](auth-method-display.md)を明示的なリスク・復旧確認付きで有効にできます。この設定はOpenSSHのパッチ適用・ビルド・置換を行いません。標準Ubuntuでは実験モードでも「不明」と表示されます。改造OpenSSHは本番サポート対象外で、FIDO実機検証と独立監査も未完了です。鍵本体や指紋、パスワードは転送しません

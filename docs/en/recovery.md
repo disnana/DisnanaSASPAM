@@ -42,13 +42,13 @@ sudo namei -l /opt/saspam/venv/bin/python
 sudo runuser -u saspam-bot -- /opt/saspam/venv/bin/python -c 'import discord; print(discord.__version__)'
 ```
 
-The `saspam test` command makes a synthetic request without editing PAM. In newer alphas it checks for an inactive Discord service before waiting. Successful `doctor` output proves only that the service is active, not that real Discord approval works; always test the button.
+The `saspam test` command makes a synthetic request without editing PAM. It checks for an inactive Discord service before waiting. Successful `doctor` output proves only that the service is active, not that real Discord approval works; always test the button.
 
 If the Bot stops, no extra approval is granted; requests ordinarily time out. If the daemon stops, the PAM hook refuses immediately. Do **not** change the fail-closed behavior to fail-open as a shortcut.
 
 ## Interrupted update or downgrade
 
-Alpha.4 includes a staged updater with transaction backups under `/var/lib/saspam/transactions` and a separately scheduled systemd rollback timer. It snapshots the previous binaries, settings, virtual environment, and unit files before switching, without removing the SSH PAM hook.
+The staged updater, available since alpha.4, keeps transaction backups under `/var/lib/saspam/transactions` and uses a separately scheduled systemd rollback timer. It snapshots the previous binaries, settings, virtual environment, and unit files before switching, without removing the SSH PAM hook.
 
 ```bash
 sudo journalctl -u saspamd -u saspam-discord -n 100 --no-pager
@@ -58,7 +58,7 @@ sudo saspam status
 
 A failed rollback can leave the daemon unavailable; new SSH connections will remain denied. Use the out-of-band console to repair or disable SASPAM's SSH hook. The timer and restore behavior have been exercised on an ephemeral Ubuntu runner, but **enabled-PAM upgrade and unexpected process failure on the actual host still require separate validation**.
 
-The first transition from alpha.3 to alpha.4 must use the versioned installer while the PAM hook is **disabled**, because alpha.3 did not include the update transaction mechanism. After installing alpha.4, run `doctor` and an approval test again before re-enabling.
+Alpha.3 and earlier have no update transaction mechanism. Follow the [legacy migration procedure](updates.md) to reach the current release, then run `doctor` and an approval test before re-enabling. Normal updates from alpha.4 and later keep the PAM hook installed.
 
 ## Removing the software
 

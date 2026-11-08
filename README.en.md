@@ -13,7 +13,7 @@
 - **Role-based Discord approval:** accepts one or more comma-separated approval role IDs. A member must have **at least one** role *and* channel visibility in the expected guild/channel to approve or deny.
 - **Japanese or English:** choose a language during setup and change it later. The core CLI, Discord embeds/buttons, and ntfy/Bark notification text follow the setting.
 - **Minimal approval interaction:** Discord button clicks are silently acknowledged; the bot edits the original embed and disables completed buttons, without success follow-up messages.
-- **Optional notifications:** ntfy.sh and Bark **deliver alerts only**. They do not grant SSH access; any VPN-backed web approval UI is not available in this alpha.
+- **Optional notifications:** ntfy.sh and Bark **deliver alerts only**. They do not grant SSH access; a VPN-backed web approval UI is not available in v1.0.0.
 - **Fail Closed:** denial, expiration, coordinator failure, or unavailable Discord approval never automatically grants login.
 - **Operator controls:** interactive terminal menu, targeted configuration changes, notification tests, opt-in OpenSSH connection limits, and a staged update/rollback mechanism.
 
@@ -37,13 +37,13 @@ The Discord bot connects to Discord normally; Tailscale or NetBird is **not requ
 
 Supported **test targets:** Ubuntu 22.04 / 24.04 on amd64 or arm64 with systemd and OpenSSH Server. The source code also targets newer Ubuntu versions, but not every version is verified by the current CI matrix.
 
-For the **currently published alpha**, specify its version explicitly:
+Install the **published v1.0.0 release** by specifying its version. The stable release designation is not an independent audit or a guarantee of production safety:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0
 ```
 
-The installer downloads the Release archive and checks the published `SHA256SUMS`. **Installing does not enable the PAM gate.** There is no stable Release yet, so omitting `--version` is not the supported alpha-installation path.
+The installer downloads the Release archive and checks the published `SHA256SUMS`. **Installing does not enable the PAM gate.** Omitting `--version` selects GitHub's latest stable Release. Use the explicit version above to pin the installation. For an existing installation, follow the update instructions below.
 
 For additional confidence, review and save the installer before running it as root. SHA-256 checks a downloaded file against the checksum provided by the same release source; **it is not independent publisher signature verification**.
 
@@ -136,11 +136,11 @@ When the SSH PAM gate is active, add `--ack-interruption` because the Discord Bo
 
 An independent, read-only [release asset](docs/ssh-auth-audit.md) derived from the operator's earlier SSH log monitor classifies `Accepted password`, `Accepted publickey`, and ECDSA-SK/Ed25519-SK key types without replacing Ubuntu's OpenSSH. It is **opt-in and not installed or started automatically**.
 
-**This does not resolve the pending Discord approval card's Unknown authentication method.** Real Ubuntu SSH/PAM probes found that `Accepted` log records reached the reader only after the approval gate had been released, so no pre-approval method is inferred. Follow [the manual SHA-256 checked procedure](docs/ssh-auth-audit.md).
+**This does not provide authentication methods before approval.** v1.0.0 hides the field by default, and this audit tool cannot resolve Unknown in experimental display mode. Real Ubuntu SSH/PAM probes found that `Accepted` log records reached the reader only after the approval gate had been released, so no pre-approval method is inferred. Follow [the manual SHA-256 checked procedure](docs/ssh-auth-audit.md).
 
 ### Discover and select Releases without a version number
 
-**For the first upgrade from alpha.4**, use `sudo saspam update --version v0.1.0-alpha.5`, since the alpha.4 CLI does not yet support versionless selection. From alpha.5 onward, `sudo saspam update` can discover Releases for you
+**The alpha.4 CLI does not support versionless selection.** Use the version-pinned v1.0.0 update instructions below. From alpha.5 onward, `sudo saspam update` can discover Releases for you
 
 
 ```bash
@@ -149,24 +149,30 @@ sudo saspam update --list      # View available versions and installed status
 sudo saspam update --latest    # Automatically select the newest compatible Release
 ```
 
-The interactive menu also offers the Release picker. Older versions require explicit downgrade confirmation; reinstalling the current version requires `--allow-reinstall`. The selected version then uses the existing fail-closed update/rollback process
+The interactive menu also offers the Release picker. **The updater's `--latest` includes prereleases** when selecting the newest compatible Release. Use `--version v1.0.0` to select this stable version. Older versions require explicit downgrade confirmation; reinstalling the current version requires `--allow-reinstall`. The selected version then uses the existing fail-closed update/rollback process
 
 ## Updating and rolling back
 
-The first upgrade **from alpha.3 to alpha.4** must use the installer with SASPAM disabled because alpha.3 lacks the updater. Keep console access, disable the hook, install alpha.4, then rerun `doctor` and the Discord approval test before re-enabling.
+**Alpha.3 and earlier lack the updater.** Preserve console access and configuration backups, then follow the [legacy migration procedure](docs/en/updates.md). From alpha.4 onward, use the version-pinned updater without disabling the PAM gate.
 
-For future versions that include the updater:
+To upgrade an older version that includes the updater:
 
 ```bash
-sudo saspam update --version v0.1.0-alpha.5 --dry-run
-sudo saspam update --version v0.1.0-alpha.5 --allow-reinstall
-sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
+sudo saspam update --version v1.0.0 --dry-run
+sudo saspam update --version v1.0.0
+```
+
+If v1.0.0 is already installed, add `--allow-reinstall` only for an intentional reinstall (also required for a same-version `--dry-run`). An older target requires `--allow-downgrade`; select only a version whose compatibility you have reviewed. Downgrading to an alpha is not the normal update path.
+
+Only if you need to undo the previous committed update:
+
+```bash
 sudo saspam update --rollback
 ```
 
 The updater stages and validates new files, snapshots the old installation and configuration, arms an independent systemd rollback timer, restarts services, and requires a Discord approval check before committing (unless the PAM gate is disabled and a test skip is explicitly requested). **The SSH PAM hook remains installed throughout the transaction.** If recovery fails, access remains denied rather than silently opening SSH.
 
-The `--block-new-ssh` option is deliberately **not implemented** in this alpha: it returns an error instead of installing untested firewall rules.
+The `--block-new-ssh` option is deliberately **not implemented**: it returns an error instead of installing untested firewall rules.
 
 See the [update/rollback guide](docs/en/updates.md) for details.
 
@@ -195,7 +201,7 @@ sudo journalctl -u saspamd -u saspam-discord -n 100 --no-pager
 
 The bot's service is `saspam-discord`. A stopped bot causes approval requests to expire without allowing entry; a stopped daemon causes immediate PAM-side denial. The coordinator status check is **not** a substitute for testing a real Discord approval.
 
-Neither GitHub Actions tests nor checksum verification are a security certification. Hardware FIDO, full live Discord E2E, enabled-PAM failure injection, signed/provenance-verified releases, and independent security review remain release gates. Docker isolation and VPN-backed Bark/ntfy approval are **not shipped** in alpha.4.
+Neither GitHub Actions tests nor checksum verification are a security certification. Hardware FIDO, full live Discord E2E, enabled-PAM failure injection, signed/provenance-verified releases, and independent security review remain unfinished in v1.0.0. Production SSH deployment is not recommended. Docker isolation and VPN-backed Bark/ntfy approval are **not shipped** in v1.0.0.
 
 ## Documentation / ドキュメント
 

@@ -1,4 +1,4 @@
-# 更新・ダウングレード・自動復旧（Alpha）
+# 更新・ダウングレード・自動復旧（v1.0.0）
 
 **日本語** | [English](en/updates.md) · [ドキュメント一覧](README.md) · [README](../README.md)
 
@@ -9,18 +9,20 @@ DisnanaSASPAMの更新処理は **SSHのPAM保護を解除しない** ことを�
 - Ubuntu 22.04 / 24.04（amd64 / arm64）およびsystemd
 - 復旧用の既存SSHセッションと、クラウドのコンソール・シリアルコンソール
 - `sudo saspam doctor` と `sudo saspam test` で正常性を確認できること
-- Alpha版は開発段階。正式運用前の実機確認とセキュリティ監査が必要
+- v1.0.0も独立したセキュリティ監査は未完了で、本番SSHへの導入は推奨しません。まず使い捨てUbuntu VMで更新と復旧を検証
 
 ## コマンド
 
+alpha.4以降の、v1.0.0より古い版から更新する例です。alpha.3以前は下記の別手順を使ってください
+
 ```bash
-sudo saspam update --version v0.1.0-alpha.4 --dry-run
-sudo saspam update --version v0.1.0-alpha.4 --allow-reinstall
-sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
-sudo saspam update --rollback
+sudo saspam update --version v1.0.0 --dry-run
+sudo saspam update --version v1.0.0
 ```
 
-現在のバージョンと同じ版を再配置する場合は `--allow-reinstall` が必要です。`--skip-approval-test` はSSHのPAM保護が **無効なときに限って** 利用できます
+現在のバージョンと同じ版を再配置する場合は `--allow-reinstall` が必要です。同じ版の事前検証も `sudo saspam update --version v1.0.0 --allow-reinstall --dry-run` と指定します。`--rollback`は前回確定した更新のバックアップへ戻す操作で、初回インストールの取り消しではありません。`--skip-approval-test` はSSHのPAM保護が **無効なときに限って** 利用できます
+
+旧版へ変更する場合だけ、互換性を確認した対象タグと`--allow-downgrade`を明示します。Alpha版への変更は通常の更新手順ではありません。現在の設定や更新・復旧プロトコルに対応しない版を強制導入しないでください
 
 ## 失敗時の復旧
 
@@ -38,9 +40,18 @@ sudo saspam update --rollback
 sudo saspam status
 ```
 
-## 初めてAlpha.3から更新する場合
+## alpha.3以前からの移行（更新機構がない場合）
 
-Alpha.3には安全な更新・復旧コマンドがありません。最初の移行時だけ復旧用コンソールを確保し、`saspam disable` 後にAlpha.4のインストーラーでアップグレードします。再度 `saspam setup`、`saspam doctor`、`saspam test` を通過させてから保護を有効化してください。以降のバージョン更新ではPAMゲートを解除しません
+alpha.3以前には更新・復旧コマンドがありません。以下はその旧版だけの手順で、alpha.4以降の通常更新ではPAMゲートを解除しません。すべての旧版からの移行を実機検証済みという意味ではなく、まず使い捨てVMで設定の互換性と復旧を確認してください
+
+1. 復旧用コンソールと既存の管理SSHセッションを維持し、設定を秘密情報として安全にバックアップ
+2. `sudo saspam disable`後に`sudo saspam status`で解除を確認。この間はSASPAMの追加承認がないため、移行中の接続を管理できる環境で実施
+3. [導入ガイド](installation.md)の`--version v1.0.0`を指定したインストーラーを実行
+4. **すべての旧版移行で`sudo saspam setup`を実行**し、設定を確認・保存してデーモンとBotを再起動。インストーラーだけでは稼働中の旧プロセスを再起動しません。alpha.1の旧ユーザーID設定は互換性がないため、ロールID方式へ置き換え
+5. `sudo saspam doctor`、実際のDiscord承認を伴う`sudo saspam test`を通過させてから、`sudo saspam enable --ack-recovery --ack-tested`で再有効化
+6. 元の管理セッションを閉じず、別SSH接続で承認・拒否・期限切れを確認
+
+alpha.4からは上記の`--version v1.0.0`による更新を使用します。alpha.5を中間版として導入する必要はありませんが、対象版と設定の事前検証は必要です
 
 ## SSH新規接続の一時遮断について
 
@@ -57,7 +68,7 @@ Alpha.3には安全な更新・復旧コマンドがありません。最初の�
 
 [復旧](recovery.md) · [セキュリティ](security.md) · [English](en/updates.md)
 
-## alpha.5：バージョンを知らなくても更新できます
+## alpha.5以降：バージョンを知らなくても候補を選べます
 
 ```bash
 sudo saspam update
@@ -65,4 +76,4 @@ sudo saspam update --list
 sudo saspam update --latest
 ```
 
-通常は公開Releaseを新しい順に提示し、現在の版との差（新しい・同じ・古い）を表示します。対象アーキテクチャの配布アーカイブとSHA256SUMSが存在するものだけ候補にします。旧版の選択には明示的な許可が必要です
+通常は公開Releaseを新しい順に提示し、現在の版との差（新しい・同じ・古い）を表示します。対象アーキテクチャの配布アーカイブとSHA256SUMSが存在するものだけ候補にします。**`--latest`は試験版も含めます**。インストーラーの版省略（最新の正式Release）とは異なります。v1.0.0へ固定するには`--version v1.0.0`を使ってください。旧版の選択には明示的な許可が必要です

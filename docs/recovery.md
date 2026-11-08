@@ -51,11 +51,11 @@ sudo saspam uninstall --yes
 
 ## Discord Bot実行権限の復旧（203/EXEC）
 
-`systemctl status saspam-discord`で`203/EXEC Permission denied`が出た場合は、`namei -l /opt/saspam/venv/bin/python`でvenv内の権限を確認します。alpha.3のインストーラーは、venvのみroot:saspam-botのグループから実行できるようにし、Botの非root実行テストを行います。`/etc/saspam`のToken等の権限は変更しません
+`systemctl status saspam-discord`で`203/EXEC Permission denied`が出た場合は、`namei -l /opt/saspam/venv/bin/python`でvenv内の権限を確認します。現行インストーラーは、venvのみroot:saspam-botのグループから実行できるようにし、Botの非root実行テストを行います。`/etc/saspam`のToken等の権限は変更しません
 
 Bot停止時の`saspam test`はPAMを変更せず中断されます。`saspam enable`前にDiscord通知と承認動作を確かめてください
 
-## alpha.4 の更新失敗
+## 更新失敗からの復旧
 
 `/var/lib/saspam/transactions`内のroot専用バックアップを使用し、systemdの復旧タイマーが旧版を復元します。復元できなかった場合、PAMはFail Closedを維持するため、管理者はコンソールから復旧してください
 
@@ -65,6 +65,6 @@ sudo saspam update --rollback
 sudo saspam status
 ```
 
-初回alpha.3→alpha.4は更新機構の導入が必要なため、保護を解除してから実行する[移行手順](updates.md)を参照してください
+alpha.3以前には更新機構がないため、現行版へ移行する場合は[旧版の移行手順](updates.md)を参照してください。alpha.4以降の通常更新では保護を解除しません
 
 [インストール](installation.md) · [更新と復旧](updates.md) · [English](en/recovery.md)

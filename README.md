@@ -31,19 +31,19 @@ SSHの公開鍵 / FIDO / パスワード一次認証が成功
                     └─ 拒否・期限切れ・障害 → PAM_PERM_DENIED
 ```
 
-Discord Botは通常のDiscord APIへ接続するため、Tailscale・NetBirdは必須ではありません。プッシュ通知から直接承認するWeb画面は、現在のAlpha版にはありません
+Discord Botは通常のDiscord APIへ接続するため、Tailscale・NetBirdは必須ではありません。プッシュ通知から直接承認するWeb画面は、v1.0.0にはありません
 
 ## インストール（まずは使い捨てUbuntu VMで）
 
 検証対象はUbuntu 22.04・24.04のamd64・arm64、systemd、OpenSSH Serverです。その他のバージョンはすべての組み合わせを検証しているわけではありません
 
-**公開中のAlpha版はバージョンを明示して導入してください**
+**公開中の正式版v1.0.0を明示して導入します**。正式版という区分は、独立した監査や本番運用の安全性を保証するものではありません
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/disnana/DisnanaSASPAM/main/scripts/install.sh | sudo bash -s -- --version v1.0.0
 ```
 
-GitHub Releaseのアーカイブと`SHA256SUMS`を取得・照合します。**インストールだけではSSHのPAM保護は有効化されません**。正式安定版のReleaseはまだないため、バージョン省略で安定版を取得する運用はできません
+GitHub Releaseのアーカイブと`SHA256SUMS`を取得・照合します。**インストールだけではSSHのPAM保護は有効化されません**。`--version`を省略するとGitHubの最新の正式Releaseを取得します。導入する版を固定するには上記の指定を使ってください。既存環境の更新は下記の更新手順を参照してください
 
 rootでリモートスクリプトを実行する前に、保存して中身を確認することも推奨します。SHA-256は同じ公開元のチェックサムとの照合であり、**独立した発行者署名の検証ではありません**
 
@@ -138,13 +138,13 @@ SSH保護を有効化済みの場合は、Botの再起動に伴う一時的な�
 
 2025年のSSHログ通知を作り直した読み取り専用の監査ツールを、[別のReleaseアセット](docs/ssh-auth-audit.md)として配布します。Ubuntu標準のOpenSSHを置き換えず、`Accepted password` / `Accepted publickey` などを解析してパスワード・通常の公開鍵・ECDSA-SK・Ed25519-SKを分類できます
 
-**SSHのPAM承認前に認証方式を表示する機能ではありません**。実SSH検証では`Accepted`ログが承認後にしか監視側へ届かないため、現在の承認Embedの「不明」が解消するとは限りません。未確認の認証方式を推測して表示することもありません
+**SSHのPAM承認前に認証方式を表示する機能ではありません**。実SSH検証では`Accepted`ログが承認後にしか監視側へ届きません。v1.0.0の承認Embedは認証方式欄を標準で非表示にしており、この監査ツールで実験モードの「不明」を解消することもできません。未確認の認証方式を推測して表示することもありません
 
 リリースファイルはSHA-256照合後に手動実行できます。自動起動・SSH保護への組み込みはありません。[導入・検証手順](docs/ssh-auth-audit.md)
 
-### バージョン不要の更新（alpha.5）
+### バージョン不要の更新（alpha.5以降）
 
-**alpha.4からの初回更新**にはまだ自動選択機能がないため、`sudo saspam update --version v0.1.0-alpha.5` を使用してください。alpha.5導入後はバージョン指定なしで更新できます
+**alpha.4には自動選択機能がありません**。v1.0.0を指定する下記の更新手順を使ってください。alpha.5以降はバージョン指定なしで候補を選べます
 
 
 ```bash
@@ -153,20 +153,26 @@ sudo saspam update --list     # 利用可能な版と現在との差を表示
 sudo saspam update --latest   # 最新の配布版を自動選択
 ```
 
-対話メニューの「更新・ダウングレード」からも選択できます。古いバージョンを選んだ場合は確認が必要です。現在の版を再配置するには `--allow-reinstall` を使います。各Releaseのチェックサムとアーキテクチャ互換性を確認したうえで、従来のFail Closed更新機構に処理を渡します
+対話メニューの「更新・ダウングレード」からも選択できます。**更新の`--latest`は試験版も含めた最新の互換Releaseを選びます**。v1.0.0を選ぶ場合は`--version v1.0.0`を使ってください。古いバージョンを選んだ場合は確認が必要です。現在の版を再配置するには `--allow-reinstall` を使います。各Releaseのチェックサムとアーキテクチャ互換性を確認したうえで、従来のFail Closed更新機構に処理を渡します
 
 ## 更新・ダウングレード・自動ロールバック
 
 ```bash
-sudo saspam update --version v0.1.0-alpha.5 --dry-run
-sudo saspam update --version v0.1.0-alpha.5 --allow-reinstall
-sudo saspam update --version v0.1.0-alpha.3 --allow-downgrade
+sudo saspam update --version v1.0.0 --dry-run
+sudo saspam update --version v1.0.0
+```
+
+既にv1.0.0の場合は、意図した再配置に限って`--allow-reinstall`を追加します（同じ版の`--dry-run`にも必要です）。旧版への変更には`--allow-downgrade`が必要ですが、互換性を検証した版だけを指定してください。Alpha版へのダウングレードは通常の更新手順ではありません
+
+直前の確定済み更新を取り消す必要がある場合だけ実行します：
+
+```bash
 sudo saspam update --rollback
 ```
 
 更新処理は、新版の事前検証、旧版と設定のバックアップ、サービス切替、承認テスト、確定の順。独立したsystemdタイマーが未完了更新を検知した場合は旧版への復元を試みます。**更新中もSSHのPAMフックは解除せず、承認できない接続は拒否**する構成です
 
-**alpha.3からalpha.4へ最初に移行する場合**は、alpha.3に更新機構がないため、復旧経路を確保したうえで`sudo saspam disable`してからバージョン指定インストーラーを実行してください。以降の更新は`saspam update`を使用できます
+**alpha.3以前から移行する場合**は更新機構がないため、復旧経路と設定バックアップを確保し、[旧版の移行手順](docs/updates.md)に従ってください。alpha.4以降はPAM保護を解除せず、バージョンを指定した`saspam update`を使用します
 
 `--block-new-ssh`は未提供で、指定するとエラーになります。ファイアウォールを使った新規SSH接続の一時遮断は安全性検証後に対応する方針です。[詳細な更新・復旧手順](docs/updates.md)
 
@@ -195,7 +201,7 @@ sudo journalctl -u saspamd -u saspam-discord -n 100 --no-pager
 
 Botが停止しているときは勝手に承認されず、未承認要求は期限切れになります。認証デーモン停止時はPAMが拒否します。既存のSSHセッションや多重化済みのチャネルには再承認を要求しません
 
-実Discord APIのすべての経路、FIDOハードウェア、PAM有効状態の障害復旧、独立したセキュリティ監査、署名・provenance検証は安定版までの課題です。DockerによるBot分離やVPN経由のBark/ntfy承認画面はalpha.4では提供していません
+実Discord APIのすべての経路、FIDOハードウェア、PAM有効状態の障害復旧、独立したセキュリティ監査、署名・provenance検証はv1.0.0でも未完了です。本番SSHサーバーでの運用は推奨しません。DockerによるBot分離やVPN経由のBark/ntfy承認画面はv1.0.0では提供していません
 
 ## ドキュメント / Documentation
 

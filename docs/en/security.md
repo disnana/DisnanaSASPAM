@@ -2,7 +2,7 @@
 
 [日本語](../security.md) | **English** · [Documentation index](../README.md) · [English README](../../README.en.md)
 
-> **v1.0.0, not independently audited.** Passing automated CI, an SSH integration test, or checksumming a Release archive **does not** establish production security. Plan a separate security review and operator test before stable release.
+> **v1.0.0, not independently audited.** Passing automated CI, an SSH integration test, or checksumming a Release archive **does not** establish production security. Production SSH deployment is not recommended; independent security review and operator testing remain unfinished.
 
 ## What SASPAM aims to protect
 
@@ -55,9 +55,9 @@ The tool intentionally does **not** change the SSH port, disable password authen
 
 The updater stages a versioned GitHub Release, checks SHA-256, validates the configuration and Python code, snapshots the old installation, and arms an independent systemd rollback timer. It preserves the SSH PAM hook while services restart, so interruption results in **denial**, not silent access.
 
-The current SHA-256 file is published alongside the release and is **not an independent authenticity signature**. Signed artifact provenance, pinned/verified Python transitive dependencies, build reproducibility, dynamic fault injection, and a third-party audit should be completed before calling this stable.
+The current SHA-256 file is published alongside the release and is **not an independent authenticity signature**. Signed artifact provenance, pinned/verified Python transitive dependencies, build reproducibility, dynamic fault injection, and a third-party audit remain unfinished in v1.0.0. The stable release designation does not certify production safety.
 
-The `--block-new-ssh` option is **disabled**: it returns an error rather than applying firewall rules with uncertain rollback behavior. Docker isolation and VPN/web approval are also outside alpha.4.
+The `--block-new-ssh` option is **disabled**: it returns an error rather than applying firewall rules with uncertain rollback behavior. Docker isolation and VPN/web approval are also outside v1.0.0.
 
 ## Reporting a vulnerability
 
